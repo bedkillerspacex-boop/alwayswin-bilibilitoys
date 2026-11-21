@@ -37,7 +37,8 @@
       channel: CHANNEL,
       type: 'config',
       module: 'norecoil',
-      enabled: Boolean(module.on)
+      enabled: Boolean(module.on),
+      noSpread: Boolean((module.settings.find((s) => s.n === 'No Spread') || { v: 1 }).v)
     };
     const key = JSON.stringify(config);
 
@@ -58,11 +59,13 @@
 
   register({
     name: 'NoRecoil',
-    desc: 'Removes weapon recoil and camera shake.',
+    desc: 'Removes weapon recoil, camera shake, and bullet spread.',
     cat: "Combat",
     nm: { l: 'norecoil', ls: 'no recoil', n: 'NoRecoil', ns: 'No Recoil' },
     disp: '',
-    settings: [],
+    settings: [
+      { t: 'b', n: 'No Spread', d: 'Keeps weapon spread at minimum (0) in all stances.', v: 1 }
+    ],
     onRender: syncConfig,
     onEnable() {}
   });
@@ -88,6 +91,12 @@
   }
 
   function installGame(bridge) {
+    let noSpread = true;
+
+    function isSpreadSuppressed() {
+      return noSpread && bridge.isRecoilSuppressed();
+    }
+
     bridge.setRecoilSuppressed('norecoil', false);
 
     bridge.onConfig('solstice-combat', (data) => {
@@ -95,6 +104,7 @@
         return;
       }
 
+      noSpread = data.noSpread !== false;
       bridge.setRecoilSuppressed('norecoil', Boolean(data.enabled));
     });
 
@@ -124,6 +134,33 @@
 
       if (!debug) {
         return;
+      }
+
+      const arsenal = debug.arsenal;
+
+      if (arsenal && !arsenal.__solsticeNoSpreadPatched) {
+        try {
+          let storedSpread = Number(arsenal.spread) || 0;
+
+          Object.defineProperty(arsenal, 'spread', {
+            configurable: true,
+            enumerable: true,
+            get() {
+              return isSpreadSuppressed() ? 0 : storedSpread;
+            },
+            set(value) {
+              storedSpread = Number(value) || 0;
+            }
+          });
+
+          Object.defineProperty(arsenal, '__solsticeNoSpreadPatched', { value: true });
+        } catch {
+
+        }
+      }
+
+      if (arsenal && isSpreadSuppressed()) {
+        arsenal.bloom = 0;
       }
 
       const recoil = debug.arsenal?.recoil;

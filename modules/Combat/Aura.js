@@ -45,7 +45,7 @@
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 20)) || 0));
-    const lead = Math.max(0, Math.min(0.25, Number(setting(module, 'Lead', 0.04)) || 0));
+    const lead = Math.max(0, Math.min(0.25, Number(setting(module, 'Lead', 0)) || 0));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -102,7 +102,7 @@
         t: 'n',
         n: 'Lead',
         d: 'Velocity prediction time (seconds) for fast-moving targets.',
-        v: 0.04,
+        v: 0,
         min: 0,
         max: 0.25,
         step: 0.01
@@ -155,7 +155,7 @@
       enabled: false,
       mode: 'Switch',
       range: 20,
-      lead: 0.04,
+      lead: 0,
       wallCheck: true,
       ads: false,
       legacyAura: false
@@ -313,8 +313,8 @@
       }
 
       const pose = resolveActorPose(actor);
-      const eyeHeight = pose.height < 1.1 ? 0.72 : pose.height < 1.4 ? 1.0 : 1.62;
-      out.set(pose.x, pose.y + eyeHeight, pose.z);
+      const aimY = pose.height < 1.1 ? 0.65 : pose.height < 1.4 ? 1.0 : 1.62;
+      out.set(pose.x, pose.y + aimY, pose.z);
       return out;
     }
 
@@ -617,7 +617,7 @@
         enabled: Boolean(data.enabled),
         mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
-        lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0.04,
+        lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads),
         legacyAura: Boolean(data.legacyAura)
