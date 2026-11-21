@@ -2,9 +2,11 @@
   'use strict';
 
   /* InfiniteAmmo：
-     1. 本地弹匣/备弹锁定为 def.mag / def.reserve（兜底按候选字段探测），在 arsenal.update 前后各顶一次；
-     2. 通过 patch client/engine.js 的 Engine.prototype.snapshot，防止联机快照把 slot.ammo / slot.reserve 覆写成 0；
-     3. No Reload 开启时拦截 startReload（避免向服务端发送 { type: "reload" } 导致服务端锁死开火），并清理 reload / pumpWait 状态。 */
+     1. 换弹时允许开火（Fire While Reload）：在 arsenal.update() 推进换弹进度后，若处于 reload 状态且满足开火条件则直接调用 _fire()
+     2. 子弹不满时自动换弹（Auto Reload）：处于 ready 状态且 slot.ammo < slot.def.mag 时自动触发 startReload()
+     3. Patch 联机同步（client/engine.js）：
+        - 拦截 net.send({ type: 'reload' })，不让服务端进入换弹禁开火状态
+        - 在 Engine.prototype.snapshot() 后保护本地 slot.ammo / slot.reserve 与 reload 状态不被服务端快照覆写 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -46,9 +48,9 @@
       type: 'config',
       module: 'infiniteammo',
       enabled: Boolean(module.on),
-      magazine: boolOf(module, 'Infinite Mag', true),
-      reload: boolOf(module, 'No Reload', true),
-      reserve: boolOf(module, 'Infinite Reserve', true)
+      fireWhileReload: boolOf(module, 'Fire While Reload', true),
+      autoReload: boolOf(module, 'Auto Reload', true),
+      patchSync: boolOf(module, 'Patch Sync', true)
     };
     const key = JSON.stringify(config);
 
@@ -69,14 +71,14 @@
 
   register({
     name: 'InfiniteAmmo',
-    desc: 'Keeps magazine and reserve full, blocks reload packets, and prevents online snapshots from resetting ammo.',
+    desc: 'Allows firing while reloading, auto-reloads when not full, and patches online sync to bypass reload/ammo locks.',
     cat: 'Combat',
     nm: { l: 'infiniteammo', ls: 'infinite ammo', n: 'InfiniteAmmo', ns: 'Infinite Ammo' },
     disp: '',
     settings: [
-      { t: 'b', n: 'Infinite Mag', d: 'Keeps the magazine full.', v: 1 },
-      { t: 'b', n: 'No Reload', d: 'Blocks reload triggers and clears reload state.', v: 1 },
-      { t: 'b', n: 'Infinite Reserve', d: 'Keeps reserve ammo topped up.', v: 1 }
+      { t: 'b', n: 'Fire While Reload', d: 'Allows firing weapons during reload.', v: 1 },
+      { t: 'b', n: 'Auto Reload', d: 'Automatically reloads whenever the magazine is not full.', v: 1 },
+      { t: 'b', n: 'Patch Sync', d: 'Blocks reload packets and preserves local ammo/reload state across server snapshots.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -103,104 +105,42 @@
   }
 
   function installGame(bridge) {
-    const CAPACITY_KEYS = ['capacity', 'max', 'maxAmmo', 'magSize', 'clipSize', 'size', 'mag', 'magazineSize'];
-    const RESERVE_KEYS = ['reserve', 'reserveAmmo', 'ammoReserve', 'spare', 'spareAmmo', 'backup'];
-
     let enabled = false;
-    let magazine = true;
-    let noReload = true;
-    let reserve = true;
+    let fireWhileReload = true;
+    let autoReload = true;
+    let patchSync = true;
     let enginePatched = false;
 
-    function arsenal() {
-      return bridge.getGH()?.debug?.arsenal;
-    }
-
-    function readCapacity(slot) {
-      const defMag = Number(slot?.def?.mag);
-
-      if (Number.isFinite(defMag) && defMag > 0 && defMag < 5000) {
-        return defMag;
+    function isFireHeld(input) {
+      if (!input) {
+        return false;
       }
 
-      for (const key of CAPACITY_KEYS) {
-        const value = Number(slot?.[key]);
-
-        if (Number.isFinite(value) && value > 0 && value < 5000) {
-          return value;
-        }
+      if (typeof input.any === 'function') {
+        return Boolean(input.any(['Mouse0']));
       }
 
-      return Number(slot?.ammo) || 0;
+      return Boolean(input.keys?.has('Mouse0'));
     }
 
-    function patchStartReload(state) {
-      if (typeof state.startReload !== 'function' || state.startReload.__solsticeInfiniteAmmoWrapped) {
+    function patchNetSend(engine) {
+      const net = engine?.net;
+
+      if (!net || typeof net.send !== 'function' || net.send.__solsticeReloadBlocked) {
         return;
       }
 
-      const originalStartReload = state.startReload;
-      const wrappedStartReload = function wrappedSolsticeStartReload(...args) {
-        if (enabled && noReload) {
-          return;
+      const originalSend = net.send;
+      const wrappedSend = function wrappedSolsticeNetSend(msg, ...rest) {
+        if (enabled && patchSync && msg && msg.type === 'reload') {
+          return Promise.resolve();
         }
 
-        return originalStartReload.apply(this, args);
+        return originalSend.call(this, msg, ...rest);
       };
 
-      Object.defineProperty(wrappedStartReload, '__solsticeInfiniteAmmoWrapped', { value: true });
-      state.startReload = wrappedStartReload;
-    }
-
-    function applyAmmo() {
-      const state = arsenal();
-
-      if (!state) {
-        return;
-      }
-
-      patchStartReload(state);
-
-      const slot = state.slot;
-
-      if (!slot) {
-        return;
-      }
-
-      const capacity = readCapacity(slot);
-
-      if (magazine && capacity > 0 && Number(slot.ammo) < capacity) {
-        slot.ammo = capacity;
-      }
-
-      if (reserve) {
-        const defReserve = Number(slot.def?.reserve);
-
-        if (Number.isFinite(defReserve) && defReserve > 0) {
-          if (Number(slot.reserve) < defReserve) {
-            slot.reserve = defReserve;
-          }
-        } else {
-          for (const key of RESERVE_KEYS) {
-            const value = Number(slot[key]);
-
-            if (Number.isFinite(value) && value > 0) {
-              slot[key] = value;
-            }
-          }
-        }
-      }
-
-      if (noReload) {
-        if (state.state === 'reload' || state.state === 'reloading') {
-          state.state = 'ready';
-          state.clip = null;
-        }
-
-        if (Number(state.pumpWait) > 0) {
-          state.pumpWait = 0;
-        }
-      }
+      Object.defineProperty(wrappedSend, '__solsticeReloadBlocked', { value: true });
+      net.send = wrappedSend;
     }
 
     function installEnginePatch() {
@@ -215,27 +155,116 @@
         .then(({ Engine }) => {
           const proto = Engine?.prototype;
 
-          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeInfiniteAmmoPatched) {
+          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeAmmoSyncPatched) {
             return;
           }
 
           const originalSnapshot = proto.snapshot;
-          const wrappedSnapshot = function wrappedSolsticeEngineSnapshot(...args) {
+          const wrappedSnapshot = function wrappedSolsticeSnapshot(...args) {
+            patchNetSend(this);
+
+            if (!enabled || !patchSync) {
+              return originalSnapshot.apply(this, args);
+            }
+
+            const ars = this.ctx?.arsenal;
+            const slot = ars?.slot;
+            const saved = ars
+              ? {
+                  state: ars.state,
+                  clip: ars.clip,
+                  clipName: ars.clipName,
+                  clipT: ars.clipT,
+                  clipDur: ars.clipDur,
+                  evI: ars.evI,
+                  loaded: ars.loaded,
+                  slot,
+                  ammo: slot ? slot.ammo : undefined,
+                  reserve: slot ? slot.reserve : undefined
+                }
+              : null;
+
             const result = originalSnapshot.apply(this, args);
 
-            if (enabled) {
-              applyAmmo();
+            if (saved && this.ctx?.arsenal === ars) {
+              if (saved.slot && ars.slot === saved.slot) {
+                if (saved.ammo !== undefined) {
+                  saved.slot.ammo = saved.ammo;
+                }
+
+                if (saved.reserve !== undefined) {
+                  saved.slot.reserve = saved.reserve;
+                }
+              }
+
+              if (saved.state === 'reload' && ars.state !== 'reload') {
+                ars.state = saved.state;
+                ars.clip = saved.clip;
+                ars.clipName = saved.clipName;
+                ars.clipT = saved.clipT;
+                ars.clipDur = saved.clipDur;
+                ars.evI = saved.evI;
+                ars.loaded = saved.loaded;
+              }
             }
 
             return result;
           };
 
-          Object.defineProperty(wrappedSnapshot, '__solsticeInfiniteAmmoPatched', { value: true });
+          Object.defineProperty(wrappedSnapshot, '__solsticeAmmoSyncPatched', { value: true });
           proto.snapshot = wrappedSnapshot;
         })
         .catch(() => {
           enginePatched = false;
         });
+    }
+
+    function applyCombatRules() {
+      const debug = bridge.getGH()?.debug;
+      const state = debug?.arsenal;
+      const player = debug?.player;
+      const slot = state?.slot;
+      const def = slot?.def;
+
+      if (!state || !slot || !def || !player?.alive || player.mode === 'mantle') {
+        return;
+      }
+
+      const fireHeld = isFireHeld(debug.input);
+
+      if (
+        fireWhileReload &&
+        state.state === 'reload' &&
+        slot.ammo > 0 &&
+        Number(state.cool) <= 0 &&
+        Number(state.sprintLock) <= 0 &&
+        Number(state.pumpWait) <= 0 &&
+        typeof state._fire === 'function'
+      ) {
+        const wantsFire = def.auto ? fireHeld : Number(state.semiBuf) > 0;
+
+        if (wantsFire) {
+          const ads = Number(state.ads) || 0;
+          const adsSmooth = ads * ads * (3 - 2 * ads);
+
+          state.semiBuf = 0;
+          state.wantStopReload = false;
+          state._fire(slot, def, adsSmooth);
+        }
+      }
+
+      if (
+        autoReload &&
+        state.state === 'ready' &&
+        Number(state.pumpWait) <= 0 &&
+        slot.ammo < def.mag &&
+        slot.reserve > 0 &&
+        typeof state.startReload === 'function'
+      ) {
+        if (fireWhileReload || (!fireHeld && Number(state.semiBuf) <= 0)) {
+          state.startReload();
+        }
+      }
     }
 
     bridge.onConfig('solstice-combat', (data) => {
@@ -244,32 +273,19 @@
       }
 
       enabled = Boolean(data.enabled);
-      magazine = data.magazine !== false;
-      noReload = data.reload !== false;
-      reserve = data.reserve !== false;
+      fireWhileReload = data.fireWhileReload !== false;
+      autoReload = data.autoReload !== false;
+      patchSync = data.patchSync !== false;
 
       if (enabled) {
         installEnginePatch();
-        applyAmmo();
       }
     });
-
-    bridge.onBeforeArsenalUpdate(() => {
-      if (enabled) {
-        applyAmmo();
-      }
-    }, 45);
 
     bridge.onAfterArsenalUpdate(() => {
       if (enabled) {
-        applyAmmo();
+        applyCombatRules();
       }
     }, 45);
-
-    bridge.onReset(() => {
-      if (enabled) {
-        applyAmmo();
-      }
-    });
   }
 })();
