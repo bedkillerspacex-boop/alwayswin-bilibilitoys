@@ -51,11 +51,14 @@
       return;
     }
 
+    const modeSetting = module.settings.find((s) => s.n === 'Mode');
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'LegitHop' ? 'LegitHop' : 'Vanilla';
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'speed',
       enabled: Boolean(module.on),
+      mode,
       multiplier: value(module, 'Multiplier', 1.35),
       input: Boolean((module.settings.find((s) => s.n === 'Scale Input') || { v: 1 }).v)
     };
@@ -81,8 +84,9 @@
     desc: 'Moves you faster by scaling the movement input.',
     cat: 'Movement',
     nm: { l: 'speed', ls: 'speed', n: 'Speed', ns: 'Speed' },
-    disp: 'Multiplier',
+    disp: 'Mode',
     settings: [
+      { t: 'e', n: 'Mode', d: 'Vanilla scales speed; LegitHop simulates holding Space while moving.', v: 0, vals: ['Vanilla', 'LegitHop'] },
       { t: 'n', n: 'Multiplier', d: 'Movement speed multiplier.', v: 1.35, min: 1.0, max: 4.0, step: 0.05 },
       { t: 'b', n: 'Scale Input', d: 'Scales forward/right. Turn off if the game clamps it.', v: 1 },
       { t: 'b', n: 'Boost Fields', d: 'Also pins player speed multipliers.', v: 1 }
@@ -113,10 +117,28 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let mode = 'Vanilla';
     let multiplier = 1.35;
     let scaleInput = true;
     let boostFields = true;
     let pendingRestore = null;
+    let syntheticSpace = false;
+
+    function releaseSpace() {
+      if (!syntheticSpace) {
+        return;
+      }
+
+      syntheticSpace = false;
+
+      if (bridge.physicalSpace) {
+        return;
+      }
+
+      const input = bridge.getGH()?.debug?.input;
+      input?.keys?.delete('Space');
+      input?.down?.delete('Space');
+    }
 
     function player() {
       return bridge.getGH()?.debug?.player;
@@ -145,17 +167,22 @@
       }
 
       enabled = Boolean(data.enabled);
+      mode = data.mode === 'LegitHop' ? 'LegitHop' : 'Vanilla';
       multiplier = Math.max(1, Math.min(4, Number(data.multiplier) || 1.35));
       scaleInput = data.input !== false;
       boostFields = true;
 
-      if (!enabled) {
+      if (!enabled || mode !== 'LegitHop') {
+        releaseSpace();
+      }
+
+      if (!enabled || mode === 'LegitHop') {
         restoreInput();
       }
     });
 
     bridge.onWorldMove((context) => {
-      if (!enabled || !scaleInput || !context?.input) {
+      if (!enabled || mode === 'LegitHop' || !scaleInput || !context?.input) {
         return;
       }
 
@@ -179,7 +206,40 @@
     }, 15);
 
     bridge.onBeforePlayerUpdate(() => {
-      if (!enabled || !boostFields) {
+      if (!enabled) {
+        releaseSpace();
+        return;
+      }
+
+      if (mode === 'LegitHop') {
+        const debug = bridge.getGH()?.debug;
+        const input = debug?.input;
+        const target = debug?.player;
+        const moving = Boolean(
+          bridge.physicalW ||
+          bridge.physicalA ||
+          bridge.physicalS ||
+          bridge.physicalD ||
+          input?.keys?.has('KeyW') ||
+          input?.keys?.has('KeyA') ||
+          input?.keys?.has('KeyS') ||
+          input?.keys?.has('KeyD')
+        );
+
+        if (input?.keys && target?.alive && moving && !bridge.uiOpen) {
+          input.keys.add('Space');
+          if (target.e?.onGround) {
+            input.down?.add('Space');
+          }
+          syntheticSpace = true;
+        } else {
+          releaseSpace();
+        }
+
+        return;
+      }
+
+      if (!boostFields) {
         return;
       }
 
@@ -202,6 +262,7 @@
 
     bridge.onReset(() => {
       pendingRestore = null;
+      releaseSpace();
     });
   }
 })();
