@@ -123,8 +123,11 @@
     let boostFields = true;
     let pendingRestore = null;
     let syntheticSpace = false;
+    let hopPressed = false;
 
     function releaseSpace() {
+      hopPressed = false;
+
       if (!syntheticSpace) {
         return;
       }
@@ -226,16 +229,28 @@
           input?.keys?.has('KeyD')
         );
 
-        if (input?.keys && target?.alive && moving && !bridge.uiOpen) {
-          input.keys.add('Space');
-          if (target.e?.onGround) {
-            input.down?.add('Space');
-          }
-          syntheticSpace = true;
-        } else {
+        if (!input?.keys || !target?.alive || !moving || bridge.uiOpen) {
           releaseSpace();
+          return;
         }
 
+        const online = document.body.classList.contains('online-session');
+
+        if (!target.e?.onGround || hopPressed || (online && bridge.latestOnlineJumpHeld)) {
+          if (!bridge.physicalSpace) {
+            input.keys.delete('Space');
+            input.down?.delete('Space');
+          }
+
+          hopPressed = false;
+          syntheticSpace = false;
+          return;
+        }
+
+        input.keys.add('Space');
+        input.down?.add('Space');
+        hopPressed = true;
+        syntheticSpace = true;
         return;
       }
 
