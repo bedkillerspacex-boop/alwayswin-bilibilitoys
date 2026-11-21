@@ -121,7 +121,48 @@
     let spinYaw = 0;
     let lastSeq = -1;
     let jitterPhase = 0;
+    let enginePatched = false;
     const seqSpoofMap = new Map();
+
+    function installRespawnViewGuard() {
+      if (enginePatched) {
+        return;
+      }
+
+      enginePatched = true;
+      const engineUrl = new URL('client/engine.js', location.href).href;
+
+      import(engineUrl)
+        .then(({ Engine }) => {
+          const proto = Engine?.prototype;
+
+          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeAntiAimGuardPatched) {
+            return;
+          }
+
+          const originalSnapshot = proto.snapshot;
+          const wrappedSnapshot = function wrappedAntiAimSnapshot(s, ...rest) {
+            const p = this.player;
+            const prevYaw = p?.yaw;
+            const prevPitch = p?.pitch;
+            const wasAlive = Boolean(p?.alive);
+            const result = originalSnapshot.call(this, s, ...rest);
+
+            if (enabled && p && !wasAlive && p.alive && Number.isFinite(prevYaw) && Number.isFinite(prevPitch)) {
+              p.yaw = prevYaw;
+              p.pitch = prevPitch;
+            }
+
+            return result;
+          };
+
+          Object.defineProperty(wrappedSnapshot, '__solsticeAntiAimGuardPatched', { value: true });
+          proto.snapshot = wrappedSnapshot;
+        })
+        .catch(() => {
+          enginePatched = false;
+        });
+    }
 
     function derpAngles() {
       spinYaw = bridge.wrapAngle(spinYaw + (derpSpeed * Math.PI / 180) * STEP);
@@ -206,7 +247,9 @@
           derpPitch = data.derpPitch;
         }
 
-        if (!enabled) {
+        if (enabled) {
+          installRespawnViewGuard();
+        } else {
           lastSeq = -1;
           seqSpoofMap.clear();
         }
@@ -220,7 +263,7 @@
 
       const game = bridge.getContext();
 
-      if (!game || !context.input) {
+      if (!game || !game.player?.alive || !context.input) {
         return;
       }
 

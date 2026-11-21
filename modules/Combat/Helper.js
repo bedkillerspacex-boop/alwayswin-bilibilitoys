@@ -2,9 +2,9 @@
   'use strict';
 
   /* Helper：
-     1. 主武器打空且未在换弹时，自动切到副武器补枪
-     2. 手持副武器时，仅在周围没有可攻击敌人（或副武器打空）且未在换弹时才切回主武器，避免对群杀一个就切回
-     3. 主/副武器换弹中绝不打断，且换弹完成后等待 0.3s 才允许切枪；每次切枪带 0.4s 冷却防重复换弹
+     1. 主武器打空且未在换弹时，自动切到副武器补枪；若开启 Swap On Hit，受击时即使主武器在换弹中也允许立刻切副武器反打
+     2. 手持副武器时，仅在周围没有可攻击敌人（或副武器打空）且未在换弹时才切回主武器
+     3. Reload Wait（0 ~ 0.3s，步进 0.01s）控制换弹完成后等待多久才允许切枪；每次切枪带 0.4s 冷却防重复换弹
      4. 可选「Fire While Swap」（默认关）：切枪（holster/draw）期间仍允许开火 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
@@ -29,9 +29,9 @@
     return null;
   }
 
-  function boolOf(module, name, fallback) {
-    const setting = module.settings.find((entry) => entry.n === name);
-    return setting ? Boolean(setting.v) : fallback;
+  function setting(module, name, fallback) {
+    const entry = module.settings.find((s) => s.n === name);
+    return entry ? entry.v : fallback;
   }
 
   function syncConfig() {
@@ -42,15 +42,18 @@
     }
 
     const now = performance.now();
+    const reloadWait = Math.max(0, Math.min(0.3, Number(setting(module, 'Reload Wait', 0.3)) || 0));
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'helper',
       enabled: Boolean(module.on),
-      autoSecondary: boolOf(module, 'Auto Secondary', true),
-      returnOnKill: boolOf(module, 'Return On Kill', true),
-      returnWhenIdle: boolOf(module, 'Return When Idle', true),
-      fireWhileSwap: boolOf(module, 'Fire While Swap', false)
+      autoSecondary: Boolean(setting(module, 'Auto Secondary', true)),
+      returnOnKill: Boolean(setting(module, 'Return On Kill', true)),
+      returnWhenIdle: Boolean(setting(module, 'Return When Idle', true)),
+      swapOnHit: Boolean(setting(module, 'Swap On Hit', true)),
+      reloadWait,
+      fireWhileSwap: Boolean(setting(module, 'Fire While Swap', false))
     };
     const key = JSON.stringify(config);
 
@@ -79,6 +82,8 @@
       { t: 'b', n: 'Auto Secondary', d: 'Swaps to secondary when primary ammo reaches 0.', v: 1 },
       { t: 'b', n: 'Return On Kill', d: 'Swaps back to primary after kills once no enemies remain.', v: 1 },
       { t: 'b', n: 'Return When Idle', d: 'Swaps back to primary when idle and no enemies remain.', v: 1 },
+      { t: 'b', n: 'Swap On Hit', d: 'Allows interrupting reload to swap when taking damage.', v: 1 },
+      { t: 'n', n: 'Reload Wait', d: 'Wait time (seconds) after reload finishes before swapping.', v: 0.3, min: 0, max: 0.3, step: 0.01 },
       { t: 'b', n: 'Fire While Swap', d: 'Allows firing during holster/draw swap animations.', v: 0 }
     ],
     onRender: syncConfig,
@@ -107,31 +112,37 @@
 
   function installGame(bridge) {
     const SWAPPABLE_STATES = new Set(['ready', 'inspect', 'draw']);
-    const RELOAD_GRACE_MS = 300;
     const SWAP_COOLDOWN_MS = 400;
     const IDLE_RETURN_DELAY_MS = 500;
     const IDLE_SINCE_FIRE_SEC = 0.5;
     const ENEMY_CHECK_RANGE = 30;
+    const HIT_WINDOW_MS = 800;
 
     let enabled = false;
     let autoSecondary = true;
     let returnOnKill = true;
     let returnWhenIdle = true;
+    let swapOnHit = true;
+    let reloadWaitMs = 300;
     let fireWhileSwap = false;
 
     let lastKills = null;
+    let lastHealth = null;
     let lastArsenalState = null;
     let reloadGraceUntil = 0;
     let swapCooldownUntil = 0;
+    let tookDamageUntil = 0;
     let primaryEmptyHandled = false;
     let pendingReturnToPrimary = false;
     let swappedToSecondaryAt = 0;
 
     function resetTracking() {
       lastKills = null;
+      lastHealth = null;
       lastArsenalState = null;
       reloadGraceUntil = 0;
       swapCooldownUntil = 0;
+      tookDamageUntil = 0;
       primaryEmptyHandled = false;
       pendingReturnToPrimary = false;
       swappedToSecondaryAt = 0;
@@ -233,7 +244,7 @@
       const now = performance.now();
 
       if (lastArsenalState === 'reload' && state.state !== 'reload') {
-        reloadGraceUntil = now + RELOAD_GRACE_MS;
+        reloadGraceUntil = now + reloadWaitMs;
       }
 
       lastArsenalState = state.state;
@@ -241,15 +252,26 @@
       tryFireWhileSwap(debug, state, player);
 
       const kills = Number(player.kills) || 0;
+      const health = Number(player.health);
 
       if (!player.alive) {
         lastKills = kills;
+        lastHealth = Number.isFinite(health) ? health : null;
         reloadGraceUntil = 0;
         swapCooldownUntil = 0;
+        tookDamageUntil = 0;
         primaryEmptyHandled = false;
         pendingReturnToPrimary = false;
         swappedToSecondaryAt = 0;
         return;
+      }
+
+      if (Number.isFinite(health)) {
+        if (lastHealth !== null && health < lastHealth) {
+          tookDamageUntil = now + HIT_WINDOW_MS;
+        }
+
+        lastHealth = health;
       }
 
       if (lastKills === null) {
@@ -274,14 +296,18 @@
         primaryEmptyHandled = false;
       }
 
-      if (
-        state.state === 'reload' ||
-        state.state === 'holster' ||
-        now < reloadGraceUntil ||
-        now < swapCooldownUntil ||
-        !SWAPPABLE_STATES.has(state.state) ||
-        typeof state.swap !== 'function'
-      ) {
+      if (state.state === 'holster' || now < swapCooldownUntil || typeof state.swap !== 'function') {
+        return;
+      }
+
+      const hitOverride = swapOnHit && now < tookDamageUntil;
+      const reloadBlocked = state.state === 'reload' || now < reloadGraceUntil;
+
+      if (reloadBlocked && !hitOverride) {
+        return;
+      }
+
+      if (!SWAPPABLE_STATES.has(state.state) && !(hitOverride && state.state === 'reload')) {
         return;
       }
 
@@ -290,6 +316,7 @@
 
         if (pendingReturnToPrimary && !enemyLeft) {
           pendingReturnToPrimary = false;
+          tookDamageUntil = 0;
           swapCooldownUntil = now + SWAP_COOLDOWN_MS;
           state.swap(0);
           return;
@@ -302,6 +329,7 @@
           if (firing) {
             swappedToSecondaryAt = now;
           } else if (now - swappedToSecondaryAt >= IDLE_RETURN_DELAY_MS && sinceFire >= IDLE_SINCE_FIRE_SEC) {
+            tookDamageUntil = 0;
             swapCooldownUntil = now + SWAP_COOLDOWN_MS;
             state.swap(0);
             return;
@@ -314,10 +342,14 @@
         !primaryEmptyHandled &&
         state.cur === 0 &&
         primary &&
-        primaryAmmo <= 0 &&
+        (primaryAmmo <= 0 || (hitOverride && state.state === 'reload')) &&
         secondaryAmmo > 0
       ) {
-        primaryEmptyHandled = true;
+        if (primaryAmmo <= 0) {
+          primaryEmptyHandled = true;
+        }
+
+        tookDamageUntil = 0;
         swappedToSecondaryAt = now;
         swapCooldownUntil = now + SWAP_COOLDOWN_MS;
         state.swap(1);
@@ -339,6 +371,9 @@
       autoSecondary = data.autoSecondary !== false;
       returnOnKill = data.returnOnKill !== false;
       returnWhenIdle = data.returnWhenIdle !== false;
+      swapOnHit = data.swapOnHit !== false;
+      const waitSec = Number(data.reloadWait);
+      reloadWaitMs = Number.isFinite(waitSec) ? Math.max(0, Math.min(300, Math.round(waitSec * 1000))) : 300;
       fireWhileSwap = Boolean(data.fireWhileSwap);
     });
 
