@@ -1,7 +1,9 @@
-
-
 (() => {
   'use strict';
+
+  /* AntiAim：
+     - 按 input.seq 去重，避免 Engine.prototype.snapshot() 重放 pending 输入时重复推进 spinYaw 或破坏历史输入
+     - Derp Mode：按固定 1/60s 步长稳定旋转服务端 yaw，支持 Down / Up / Jitter 俯仰角 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -34,11 +36,17 @@
 
     const derpSetting = module.settings.find((entry) => entry.n === 'Derp Mode');
     const speedSetting = module.settings.find((entry) => entry.n === 'Derp Speed');
+    const pitchSetting = module.settings.find((entry) => entry.n === 'Derp Pitch');
     const derp = Boolean(derpSetting && derpSetting.v);
-    const derpSpeed = Number(speedSetting ? speedSetting.v : 180) || 180;
+    const derpSpeed = Number(speedSetting ? speedSetting.v : 360) || 360;
+    const derpPitch = pitchSetting?.vals?.[pitchSetting.v] || 'Down';
 
     if (speedSetting) {
       speedSetting.vis = Boolean(module.on && derp);
+    }
+
+    if (pitchSetting) {
+      pitchSetting.vis = Boolean(module.on && derp);
     }
 
     const now = performance.now();
@@ -48,7 +56,8 @@
       module: 'antiaim',
       enabled: Boolean(module.on),
       derp,
-      derpSpeed
+      derpSpeed,
+      derpPitch
     };
     const key = JSON.stringify(config);
 
@@ -70,12 +79,13 @@
   register({
     name: 'AntiAim',
     desc: 'Silently points your server-side view down and away from the nearest enemy.',
-    cat: "Player",
+    cat: 'Player',
     nm: { l: 'antiaim', ls: 'anti aim', n: 'AntiAim', ns: 'Anti Aim' },
     disp: '',
     settings: [
-      { t: 'b', n: 'Derp Mode', d: 'Looks straight down and spins what everyone else sees.', v: 0 },
-      { t: 'n', n: 'Derp Speed', d: 'How fast the spin is, in degrees per second.', v: 180, min: 10, max: 1080, step: 5 }
+      { t: 'b', n: 'Derp Mode', d: 'Spins your server-side yaw and spoofs pitch.', v: 0 },
+      { t: 'n', n: 'Derp Speed', d: 'How fast the spin is, in degrees per second.', v: 360, min: 10, max: 1080, step: 5 },
+      { t: 'e', n: 'Derp Pitch', d: 'Server-side pitch mode in Derp Mode.', v: 0, vals: ['Down', 'Up', 'Jitter'] }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -102,22 +112,32 @@
   }
 
   function installGame(bridge) {
+    const STEP = 1 / 60;
+
     let enabled = false;
     let derp = false;
-    let derpSpeed = 180;
+    let derpSpeed = 360;
+    let derpPitch = 'Down';
     let spinYaw = 0;
-    let lastMoveAt = 0;
+    let lastSeq = -1;
+    let jitterPhase = 0;
+    const seqSpoofMap = new Map();
 
-    /* derp: 服务端/别人看到的视角 = 低头 + 陀螺，自己的第一人称不动 */
     function derpAngles() {
-      const now = performance.now();
-      const dt = lastMoveAt ? Math.min(0.12, Math.max(0.001, (now - lastMoveAt) / 1000)) : 1 / 60;
-      lastMoveAt = now;
-      spinYaw = bridge.wrapAngle(spinYaw + (derpSpeed * Math.PI / 180) * dt);
+      spinYaw = bridge.wrapAngle(spinYaw + (derpSpeed * Math.PI / 180) * STEP);
+      jitterPhase ^= 1;
+
+      let pitch = -1.5;
+
+      if (derpPitch === 'Up') {
+        pitch = 1.5;
+      } else if (derpPitch === 'Jitter') {
+        pitch = jitterPhase ? -1.5 : 1.5;
+      }
 
       return {
         yaw: spinYaw,
-        pitch: -Math.PI * 0.49
+        pitch
       };
     }
 
@@ -138,7 +158,7 @@
       if (!enemy) {
         return {
           yaw: bridge.wrapAngle(player.yaw + Math.PI),
-          pitch: -1.0
+          pitch: -1.5
         };
       }
 
@@ -148,7 +168,7 @@
 
       return {
         yaw: bridge.wrapAngle(towardYaw + Math.PI),
-        pitch: -1.0
+        pitch: -1.5
       };
     }
 
@@ -182,8 +202,13 @@
           derpSpeed = Math.max(10, Math.min(1080, Number(data.derpSpeed)));
         }
 
-        if (!enabled && !derp) {
-          lastMoveAt = 0;
+        if (data.derpPitch === 'Up' || data.derpPitch === 'Jitter' || data.derpPitch === 'Down') {
+          derpPitch = data.derpPitch;
+        }
+
+        if (!enabled) {
+          lastSeq = -1;
+          seqSpoofMap.clear();
         }
       }
     });
@@ -199,7 +224,32 @@
         return;
       }
 
-      const spoof = spoofFor(game.player, game.camera, game.actors);
+      const input = context.input;
+      const seq = Number(input.seq);
+      let spoof;
+
+      if (Number.isFinite(seq) && seqSpoofMap.has(seq)) {
+        spoof = seqSpoofMap.get(seq);
+      } else {
+        if (Number.isFinite(seq) && seq <= lastSeq) {
+          return;
+        }
+
+        if (Number.isFinite(seq)) {
+          lastSeq = seq;
+        }
+
+        spoof = spoofFor(game.player, game.camera, game.actors);
+
+        if (spoof && Number.isFinite(seq)) {
+          seqSpoofMap.set(seq, spoof);
+
+          if (seqSpoofMap.size > 160) {
+            const firstKey = seqSpoofMap.keys().next().value;
+            seqSpoofMap.delete(firstKey);
+          }
+        }
+      }
 
       if (!spoof) {
         return;
@@ -209,7 +259,6 @@
         context.localInput = { ...context.input };
       }
 
-      const input = context.input;
       const localYaw = Number(input.yaw) || 0;
       const localPitch = Number(input.pitch) || 0;
       const forward = Number(input.forward) || 0;
@@ -235,5 +284,10 @@
         input.right = right;
       });
     }, 30);
+
+    bridge.onReset(() => {
+      lastSeq = -1;
+      seqSpoofMap.clear();
+    });
   }
 })();
