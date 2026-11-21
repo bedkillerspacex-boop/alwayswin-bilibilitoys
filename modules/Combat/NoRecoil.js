@@ -38,7 +38,8 @@
       type: 'config',
       module: 'norecoil',
       enabled: Boolean(module.on),
-      noSpread: Boolean((module.settings.find((s) => s.n === 'No Spread') || { v: 1 }).v)
+      noSpread: Boolean((module.settings.find((s) => s.n === 'No Spread') || { v: 1 }).v),
+      stopMove: Boolean((module.settings.find((s) => s.n === 'Stop Move') || { v: 0 }).v)
     };
     const key = JSON.stringify(config);
 
@@ -64,7 +65,8 @@
     nm: { l: 'norecoil', ls: 'no recoil', n: 'NoRecoil', ns: 'No Recoil' },
     disp: '',
     settings: [
-      { t: 'b', n: 'No Spread', d: 'Keeps weapon spread at minimum (0) in all stances.', v: 1 }
+      { t: 'b', n: 'No Spread', d: 'Keeps weapon spread at minimum (0) in all stances.', v: 1 },
+      { t: 'b', n: 'Stop Move', d: 'Briefly stops movement input right before firing with minimal slowdown.', v: 0 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -92,6 +94,7 @@
 
   function installGame(bridge) {
     let noSpread = true;
+    let stopMove = false;
 
     function isSpreadSuppressed() {
       return noSpread && bridge.isRecoilSuppressed();
@@ -105,8 +108,43 @@
       }
 
       noSpread = data.noSpread !== false;
+      stopMove = Boolean(data.stopMove);
       bridge.setRecoilSuppressed('norecoil', Boolean(data.enabled));
     });
+
+    bridge.onWorldMove((context) => {
+      if (!stopMove || !bridge.isRecoilSuppressed() || !context?.localInput) {
+        return;
+      }
+
+      const debug = bridge.getGH()?.debug;
+      const arsenal = debug?.arsenal;
+      const input = debug?.input;
+      const aura = typeof bridge.getFeature === 'function' ? bridge.getFeature('aura') : null;
+      const fireHeld =
+        typeof input?.any === 'function'
+          ? Boolean(input.any(['Mouse0']))
+          : Boolean(input?.keys?.has('Mouse0'));
+      const aboutToFire =
+        (fireHeld || bridge.physicalLmb || Boolean(aura?.canFireNow?.())) &&
+        arsenal &&
+        arsenal.state === 'ready' &&
+        Number(arsenal.cool) <= 0.03 &&
+        (arsenal.slot?.ammo || 0) > 0;
+
+      if (!aboutToFire) {
+        return;
+      }
+
+      if (context.localInput === context.input) {
+        context.localInput = { ...context.input };
+      }
+
+      context.localInput.forward = 0;
+      context.localInput.right = 0;
+      context.input.forward = 0;
+      context.input.right = 0;
+    }, 35);
 
     bridge.onBeforePlayerUpdate(() => {
       if (!bridge.isRecoilSuppressed()) {
