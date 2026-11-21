@@ -292,8 +292,8 @@
       }
 
       const pose = resolveActorPose(actor);
-      const headDrop = pose.height < 1.1 ? 0.15 : 0.17;
-      out.set(pose.x, pose.y + pose.height - headDrop, pose.z);
+      const eyeHeight = pose.height < 1.1 ? 0.72 : pose.height < 1.4 ? 1.0 : 1.62;
+      out.set(pose.x, pose.y + eyeHeight + 0.04, pose.z);
       return out;
     }
 
@@ -452,10 +452,28 @@
 
       const debug = bridge.getGH()?.debug;
       const camera = debug?.gfx?.camera;
-      const origin = eye || debug?.player?.eye || camera?.position;
+      const baseOrigin = eye || debug?.player?.eye || camera?.position;
 
-      if (!origin || !debug) {
+      if (!baseOrigin || !debug) {
         return null;
+      }
+
+      let origin = baseOrigin;
+      const slideDerp = typeof bridge.getFeature === 'function' ? bridge.getFeature('slidederp') : null;
+
+      if (
+        !config.legacyAura &&
+        slideDerp &&
+        typeof slideDerp.isActive === 'function' &&
+        slideDerp.isActive() &&
+        slideDerp.isSilent() &&
+        debug.player?.pos
+      ) {
+        origin = {
+          x: baseOrigin.x,
+          y: debug.player.pos.y + slideDerp.getServerEyeHeight(),
+          z: baseOrigin.z
+        };
       }
 
       const point = aimPoint(target, origin, debug);

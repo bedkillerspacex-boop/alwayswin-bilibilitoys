@@ -1,8 +1,11 @@
 (() => {
   'use strict';
 
-  /* SlideDerp：按固定 tick 间隔在「滑铲（SLIDE）」与「站立/取消滑铲（CROUCH/STAND）」之间高速切换，
-     配合 bhop / Speed 使用时，使服务端与敌方视角中的角色高度（0.95 / 1.2 / 1.8）和速度不断抖动，降低被命中率。 */
+  /* SlideDerp：
+     1. 仅在交战/开火时启用（Aura 有目标、按住开火键或 sinceFire < 0.25）
+     2. 在 SPRINT|SLIDE 与 SPRINT 之间切换（不强塞 CROUCH，避免 2.7 蹲伏减速）
+     3. 按 input.seq 去重计数，避免 snapshot 重放时重复触发
+     4. 通过 bridge.provide('slidederp') 暴露服务端眼高，供 Aura 修正 Silent 下的爆头 pitch */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -73,13 +76,13 @@
 
   register({
     name: 'SlideDerp',
-    desc: 'Rapidly toggles slide and stand/crouch states to desync enemy/bot aim while bhopping.',
+    desc: 'Toggles slide/sprint while fighting without crouch slowdown.',
     cat: 'Movement',
     nm: { l: 'slidederp', ls: 'slide derp', n: 'SlideDerp', ns: 'Slide Derp' },
     disp: 'Interval',
     settings: [
-      { t: 'n', n: 'Interval', d: 'Ticks between slide and un-slide toggles.', v: 2, min: 1, max: 20, step: 1 },
-      { t: 'b', n: 'Silent', d: 'Applies slide derp to server input without shaking your local camera.', v: 1 }
+      { t: 'n', n: 'Interval', d: 'Ticks between slide and sprint toggles.', v: 2, min: 1, max: 20, step: 1 },
+      { t: 'b', n: 'Silent', d: 'Applies slide derp only to server input.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -114,6 +117,31 @@
     let interval = 2;
     let silent = true;
     let tickCount = 0;
+    let lastSeq = -1;
+    let activeNow = false;
+    let serverSliding = false;
+    const seqPhaseMap = new Map();
+
+    function isFighting() {
+      const aura = typeof bridge.getFeature === 'function' ? bridge.getFeature('aura') : null;
+
+      if (aura && typeof aura.getTarget === 'function' && aura.getTarget()) {
+        return true;
+      }
+
+      const debug = bridge.getGH()?.debug;
+      const input = debug?.input;
+      const fireHeld =
+        typeof input?.any === 'function'
+          ? Boolean(input.any(['Mouse0']))
+          : Boolean(input?.keys?.has('Mouse0'));
+
+      if (fireHeld || bridge.physicalLmb) {
+        return true;
+      }
+
+      return Number(debug?.arsenal?.sinceFire) < 0.25;
+    }
 
     bridge.onConfig('solstice-movement', (data) => {
       if (data.type !== 'config' || data.module !== 'slidederp') {
@@ -126,23 +154,53 @@
 
       if (!enabled) {
         tickCount = 0;
+        lastSeq = -1;
+        activeNow = false;
+        serverSliding = false;
+        seqPhaseMap.clear();
       }
     });
 
     bridge.onWorldMove((context) => {
       if (!enabled || !context?.input) {
+        activeNow = false;
+        serverSliding = false;
         return;
       }
 
       const input = context.input;
       const moving = Math.abs(Number(input.forward) || 0) > 0.01 || Math.abs(Number(input.right) || 0) > 0.01;
 
-      if (!moving) {
+      if (!moving || !isFighting()) {
+        activeNow = false;
+        serverSliding = false;
         return;
       }
 
-      tickCount += 1;
-      const phase = Math.floor(tickCount / interval) % 2;
+      activeNow = true;
+      const seq = Number(input.seq);
+      let phase;
+
+      if (Number.isFinite(seq) && seqPhaseMap.has(seq)) {
+        phase = seqPhaseMap.get(seq);
+      } else {
+        if (!Number.isFinite(seq) || seq > lastSeq) {
+          tickCount += 1;
+          if (Number.isFinite(seq)) {
+            lastSeq = seq;
+          }
+        }
+
+        phase = Math.floor(tickCount / interval) % 2;
+
+        if (Number.isFinite(seq)) {
+          seqPhaseMap.set(seq, phase);
+          if (seqPhaseMap.size > 160) {
+            const firstKey = seqPhaseMap.keys().next().value;
+            seqPhaseMap.delete(firstKey);
+          }
+        }
+      }
 
       if (silent && context.localInput === context.input) {
         context.localInput = { ...context.input };
@@ -150,13 +208,43 @@
 
       if (phase === 0) {
         input.buttons = (input.buttons | SPRINT | SLIDE) & ~CROUCH;
+        serverSliding = true;
       } else {
-        input.buttons = (input.buttons | CROUCH) & ~SLIDE;
+        input.buttons = (input.buttons | SPRINT) & ~(SLIDE | CROUCH);
+        serverSliding = false;
+      }
+
+      if (!silent) {
+        context.localInput.buttons = input.buttons;
+      }
+
+      const m = context.motionState;
+
+      if (m && m.sliding) {
+        const horiz = Math.hypot(m.vx || 0, m.vz || 0);
+
+        if (horiz > 0.1 && horiz < 7.5) {
+          const scale = 7.5 / horiz;
+          m.vx *= scale;
+          m.vz *= scale;
+        }
       }
     }, 15);
 
+    if (typeof bridge.provide === 'function') {
+      bridge.provide('slidederp', {
+        isActive: () => enabled && activeNow,
+        isSilent: () => silent,
+        getServerEyeHeight: () => (serverSliding ? 0.72 : 1.62)
+      });
+    }
+
     bridge.onReset(() => {
       tickCount = 0;
+      lastSeq = -1;
+      activeNow = false;
+      serverSliding = false;
+      seqPhaseMap.clear();
     });
   }
 })();
