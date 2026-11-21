@@ -170,7 +170,14 @@
           continue;
         }
 
-        bridge.headPoint(actor, head);
+        const raw = typeof bridge.getRawPlayer === 'function' ? bridge.getRawPlayer(actor) : null;
+
+        if (raw && raw.alive !== false) {
+          const eyeHeight = raw.sliding ? 0.72 : raw.crouch ? 1.0 : 1.62;
+          head.set(raw.x, raw.y + eyeHeight, raw.z);
+        } else {
+          bridge.headPoint(actor, head);
+        }
 
         const dx = head.x - eye.x;
         const dy = head.y - eye.y;

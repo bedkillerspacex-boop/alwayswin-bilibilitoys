@@ -2,19 +2,20 @@
   'use strict';
 
   /* IRC 客户端模块：
-     - 外层页面启动时弹出强制登录遮罩（支持记住密码、自动登录、跳转网页注册）
-     - 游戏 iframe 内建立 WebSocket 连接，按 roomId / playerId 同步同房间的 IRC 用户与 Protect IRC 状态
-     - 默认开启 Protect IRC（不打同开启保护的 IRC 玩家）；一旦关闭 Protect IRC，所有人都可以打你 */
+     - 外层页面启动时弹出强制登录遮罩（记住密码、自动登录、网页注册）
+     - 外层页面登录成功后立即直连 wss://cod.firebounce.today/ws?token=...（不受 iframe 限制，登录即在线）
+     - 游戏 iframe 同步当前 roomId / playerId 给外层页面，外层页面把同房间 peers 列表回传给 iframe */
 
   const DEFAULT_IRC_ORIGIN = 'https://cod.firebounce.today';
+  const CHANNEL = 'solstice-irc';
+  const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const OUTER_ORIGIN = 'https://www.bilibili.com';
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
     return;
   }
 
-  const CHANNEL = 'solstice-irc';
-  const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const HEARTBEAT_MS = 500;
   const STORAGE_KEYS = {
     server: 'solstice.irc.server',
@@ -32,6 +33,14 @@
   let modalEl = null;
   let autoLoginAttempted = false;
 
+  let ws = null;
+  let wsConnected = false;
+  let wsHeartbeat = 0;
+  let wsReconnect = 0;
+  let currentRoomId = '';
+  let currentPlayerId = '';
+  let latestPeers = [];
+
   function getServerOrigin() {
     try {
       const saved = (localStorage.getItem(STORAGE_KEYS.server) || '').trim();
@@ -39,6 +48,10 @@
     } catch {
       return DEFAULT_IRC_ORIGIN;
     }
+  }
+
+  function toWsOrigin(httpOrigin) {
+    return httpOrigin.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
   }
 
   function findGameFrame() {
@@ -56,30 +69,163 @@
     return entry ? Boolean(entry.v) : fallback;
   }
 
-  function syncConfig() {
-    const module = getMod('IRC');
+  function isProtectActive() {
+    const module = typeof getMod === 'function' ? getMod('IRC') : null;
+    if (!module) return true;
+    return Boolean(module.on) && boolOf(module, 'Protect IRC', true);
+  }
 
-    if (!module) {
+  function sendWsState() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    const reLoginEntry = module.settings.find((s) => s.n === 'Re-Login');
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'state',
+          roomId: currentRoomId,
+          playerId: currentPlayerId,
+          protect: isProtectActive()
+        })
+      );
+    } catch {
 
-    if (reLoginEntry && reLoginEntry.v) {
-      reLoginEntry.v = 0;
-      openLoginModal();
+    }
+  }
+
+  function closeOuterSocket() {
+    if (wsHeartbeat) {
+      clearInterval(wsHeartbeat);
+      wsHeartbeat = 0;
+    }
+
+    if (wsReconnect) {
+      clearTimeout(wsReconnect);
+      wsReconnect = 0;
+    }
+
+    wsConnected = false;
+    latestPeers = [];
+
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+
+      }
+
+      ws = null;
+    }
+  }
+
+  function connectOuterSocket() {
+    if (!sessionToken) {
+      closeOuterSocket();
+      return;
+    }
+
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const wsUrl = `${toWsOrigin(getServerOrigin())}/ws?token=${encodeURIComponent(sessionToken)}`;
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      return;
+    }
+
+    ws.addEventListener('open', () => {
+      wsConnected = true;
+      sendWsState();
+      wsHeartbeat = setInterval(sendWsState, 5000);
+      lastSentKey = '';
+      syncConfig();
+    });
+
+    ws.addEventListener('message', (event) => {
+      let msg = null;
+
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (msg?.type === 'peers' && Array.isArray(msg.peers)) {
+        latestPeers = msg.peers;
+        lastSentKey = '';
+        syncConfig();
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      wsConnected = false;
+
+      if (wsHeartbeat) {
+        clearInterval(wsHeartbeat);
+        wsHeartbeat = 0;
+      }
+
+      latestPeers = [];
+      ws = null;
+
+      if (sessionToken && !wsReconnect) {
+        wsReconnect = setTimeout(() => {
+          wsReconnect = 0;
+          connectOuterSocket();
+        }, 3000);
+      }
+    });
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== GAME_ORIGIN) {
+      return;
+    }
+
+    const data = event.data;
+
+    if (!data || data.channel !== CHANNEL || data.type !== 'room') {
+      return;
+    }
+
+    const nextRoom = String(data.roomId || '');
+    const nextPlayer = String(data.playerId || '');
+
+    if (nextRoom !== currentRoomId || nextPlayer !== currentPlayerId) {
+      currentRoomId = nextRoom;
+      currentPlayerId = nextPlayer;
+      sendWsState();
+    }
+  });
+
+  function syncConfig() {
+    const module = typeof getMod === 'function' ? getMod('IRC') : null;
+
+    if (module) {
+      const reLoginEntry = module.settings.find((s) => s.n === 'Re-Login');
+
+      if (reLoginEntry && reLoginEntry.v) {
+        reLoginEntry.v = 0;
+        openLoginModal();
+      }
     }
 
     const now = performance.now();
+    const protectIrc = isProtectActive();
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'irc',
       enabled: Boolean(sessionToken),
-      protectIrc: Boolean(module.on) && boolOf(module, 'Protect IRC', true),
-      token: sessionToken,
+      connected: wsConnected,
+      protectIrc,
+      playerId: currentPlayerId,
       ircName: sessionIrcName,
-      serverOrigin: getServerOrigin()
+      peers: latestPeers
     };
     const key = JSON.stringify(config);
 
@@ -114,6 +260,8 @@
 
     sessionToken = String(data.token);
     sessionIrcName = String(data.ircName || data.username || username);
+    closeOuterSocket();
+    connectOuterSocket();
     lastSentKey = '';
     syncConfig();
   }
@@ -311,7 +459,10 @@
     tryBootLogin();
   }
 
-  setInterval(syncConfig, 500);
+  setInterval(() => {
+    syncConfig();
+    sendWsState();
+  }, 500);
 
   function bootGame() {
     let attempts = 0;
@@ -335,136 +486,28 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let connected = false;
     let protectIrc = true;
-    let token = '';
-    let serverOrigin = DEFAULT_IRC_ORIGIN;
-
-    let ws = null;
-    let wsConnected = false;
     let currentRoomId = '';
     let currentPlayerId = '';
     let enginePatched = false;
-    let heartbeatTimer = 0;
-    let reconnectTimer = 0;
 
     const peersById = new Map();
 
-    function toWsOrigin(httpOrigin) {
-      return httpOrigin.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
-    }
-
-    function sendState() {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-
-      const player = bridge.getGH()?.debug?.player;
-
+    function postRoomToParent() {
       try {
-        ws.send(
-          JSON.stringify({
-            type: 'state',
+        window.parent.postMessage(
+          {
+            channel: CHANNEL,
+            type: 'room',
             roomId: currentRoomId,
-            playerId: currentPlayerId,
-            name: player?.name || '',
-            protect: Boolean(enabled && protectIrc)
-          })
+            playerId: currentPlayerId
+          },
+          OUTER_ORIGIN
         );
       } catch {
 
       }
-    }
-
-    function closeSocket() {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = 0;
-      }
-
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = 0;
-      }
-
-      wsConnected = false;
-      peersById.clear();
-
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-
-        }
-
-        ws = null;
-      }
-    }
-
-    function connectSocket() {
-      if (!enabled || !token || !serverOrigin) {
-        closeSocket();
-        return;
-      }
-
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        return;
-      }
-
-      const wsUrl = `${toWsOrigin(serverOrigin)}/ws?token=${encodeURIComponent(token)}`;
-
-      try {
-        ws = new WebSocket(wsUrl);
-      } catch {
-        return;
-      }
-
-      ws.addEventListener('open', () => {
-        wsConnected = true;
-        sendState();
-        heartbeatTimer = setInterval(sendState, 5000);
-      });
-
-      ws.addEventListener('message', (event) => {
-        let msg = null;
-
-        try {
-          msg = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-
-        if (msg?.type === 'peers' && Array.isArray(msg.peers)) {
-          peersById.clear();
-
-          for (const peer of msg.peers) {
-            if (peer && peer.playerId != null && peer.playerId !== currentPlayerId) {
-              peersById.set(peer.playerId, {
-                ircName: String(peer.ircName || peer.username || 'IRC'),
-                protect: Boolean(peer.protect)
-              });
-            }
-          }
-        }
-      });
-
-      ws.addEventListener('close', () => {
-        wsConnected = false;
-
-        if (heartbeatTimer) {
-          clearInterval(heartbeatTimer);
-          heartbeatTimer = 0;
-        }
-
-        peersById.clear();
-        ws = null;
-
-        if (enabled && token && !reconnectTimer) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = 0;
-            connectSocket();
-          }, 3000);
-        }
-      });
     }
 
     function installEngineTracker() {
@@ -492,7 +535,7 @@
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
                 currentRoomId = nextRoomId;
                 currentPlayerId = nextPlayerId;
-                sendState();
+                postRoomToParent();
               }
 
               return origSetRoom.call(this, room, ...rest);
@@ -511,7 +554,7 @@
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
                 currentRoomId = nextRoomId;
                 currentPlayerId = nextPlayerId;
-                sendState();
+                postRoomToParent();
               }
 
               return origSnapshot.call(this, s, ...rest);
@@ -531,36 +574,33 @@
         return;
       }
 
-      const prevProtect = protectIrc;
-      const prevToken = token;
-      const prevOrigin = serverOrigin;
-
       enabled = Boolean(data.enabled);
+      connected = Boolean(data.connected);
       protectIrc = data.protectIrc !== false;
-      token = String(data.token || '');
-      serverOrigin = String(data.serverOrigin || DEFAULT_IRC_ORIGIN);
 
-      if (!enabled || !token) {
-        closeSocket();
-        return;
+      if (data.playerId) {
+        currentPlayerId = String(data.playerId);
+      }
+
+      peersById.clear();
+
+      if (enabled && Array.isArray(data.peers)) {
+        for (const peer of data.peers) {
+          if (peer && peer.playerId != null && String(peer.playerId) !== currentPlayerId) {
+            peersById.set(String(peer.playerId), {
+              ircName: String(peer.ircName || peer.username || 'IRC'),
+              protect: Boolean(peer.protect)
+            });
+          }
+        }
       }
 
       installEngineTracker();
-
-      if (token !== prevToken || serverOrigin !== prevOrigin) {
-        closeSocket();
-        connectSocket();
-      } else {
-        connectSocket();
-        if (wsConnected && prevProtect !== protectIrc) {
-          sendState();
-        }
-      }
     });
 
     if (typeof bridge.provide === 'function') {
       bridge.provide('irc', {
-        isEnabled: () => enabled && wsConnected,
+        isEnabled: () => enabled && connected,
         isIrcUser: (actor) => Boolean(actor && actor.id != null && peersById.has(String(actor.id))),
         getIrcInfo: (actor) => (actor && actor.id != null ? peersById.get(String(actor.id)) || null : null),
         isProtected: (actor) => {
@@ -577,7 +617,10 @@
     bridge.onReset(() => {
       currentRoomId = '';
       peersById.clear();
-      sendState();
+      postRoomToParent();
     });
+
+    installEngineTracker();
+    setInterval(postRoomToParent, 1000);
   }
 })();
