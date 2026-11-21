@@ -143,10 +143,18 @@
           continue;
         }
 
-        const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
-        const x = actor.pos.x;
-        const y = actor.pos.y;
-        const z = actor.pos.z;
+        const raw = typeof bridge.getRawPlayer === 'function' ? bridge.getRawPlayer(actor) : null;
+
+        if (raw && raw.alive === false) {
+          continue;
+        }
+
+        const height = raw
+          ? raw.sliding ? 0.95 : raw.crouch ? 1.2 : 1.8
+          : Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+        const x = raw ? raw.x : actor.pos.x;
+        const y = raw ? raw.y : actor.pos.y;
+        const z = raw ? raw.z : actor.pos.z;
         const t = bridge.rayAabb(
           eye.x, eye.y, eye.z,
           forward.x, forward.y, forward.z,

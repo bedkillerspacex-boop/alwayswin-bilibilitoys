@@ -47,10 +47,13 @@
     const color = (typeof themed === 'function' ? themed(0) : [255, 80, 160])
       .map((value) => Math.max(0, Math.min(255, Math.round(value))));
 
+    const styleSetting = module.settings.find((entry) => entry.n === 'Style');
+    const style = styleSetting?.vals?.[styleSetting.v] === 'Body' ? 'Body' : '3D';
     const config = {
       channel: CHANNEL,
       type: 'config',
       enabled: Boolean(module.on),
+      style,
       filled: Boolean(setting(module, 'Render Filled', true)),
       local: Boolean(setting(module, 'Render Local', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
@@ -80,7 +83,7 @@
     nm: { l: 'esp', ls: 'esp', n: 'ESP', ns: 'ESP' },
     disp: '',
     settings: [
-      { t: 'e', n: 'Style', d: 'The style of the ESP.', v: 0, vals: ['3D'] },
+      { t: 'e', n: 'Style', d: 'The style of the ESP (3D box or Body chams).', v: 0, vals: ['3D', 'Body'] },
       { t: 'b', n: 'Render Filled', d: 'Whether or not to render the ESP filled.', v: 1 },
       { t: 'b', n: 'Render Local', d: 'Whether or not to render the ESP on the local player.', v: 0 },
       { t: 'b', n: 'Show Friends', d: 'Whether or not to render the ESP on teammates.', v: 1 }
@@ -115,11 +118,172 @@
     const IRC_COLOR = [64, 156, 255];
     let config = {
       enabled: false,
+      style: '3D',
       filled: true,
       local: false,
       friends: true,
       color: [255, 80, 160]
     };
+    const savedMeshes = new Map();
+    const actorRoots = new WeakMap();
+    const chamsMaterials = new Map();
+    let engineHooked = false;
+
+    function installRemoteTracker() {
+      if (engineHooked) {
+        return;
+      }
+
+      engineHooked = true;
+      const engineUrl = new URL('client/engine.js', location.href).href;
+
+      import(engineUrl)
+        .then(({ Engine }) => {
+          const proto = Engine?.prototype;
+
+          if (!proto || typeof proto.renderRemotes !== 'function' || proto.renderRemotes.__solsticeEspRigHooked) {
+            return;
+          }
+
+          const origRenderRemotes = proto.renderRemotes;
+          const wrappedRenderRemotes = function wrappedEspRenderRemotes(...args) {
+            const res = origRenderRemotes.apply(this, args);
+
+            if (this.remotes) {
+              for (const r of this.remotes.values()) {
+                if (r?.rig?.root && r?.actor) {
+                  actorRoots.set(r.actor, r.rig.root);
+                }
+              }
+            }
+
+            return res;
+          };
+
+          Object.defineProperty(wrappedRenderRemotes, '__solsticeEspRigHooked', { value: true });
+          proto.renderRemotes = wrappedRenderRemotes;
+        })
+        .catch(() => {
+          engineHooked = false;
+        });
+    }
+
+    function getChamsMaterial(three, hex) {
+      if (chamsMaterials.has(hex)) {
+        return chamsMaterials.get(hex);
+      }
+
+      const mat = new three.MeshBasicMaterial({
+        color: hex,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false,
+        depthWrite: false,
+        fog: false
+      });
+      chamsMaterials.set(hex, mat);
+      return mat;
+    }
+
+    function restoreBodyMeshes() {
+      for (const [mesh, prev] of savedMeshes) {
+        try {
+          mesh.material = prev.material;
+          mesh.renderOrder = prev.renderOrder;
+        } catch {
+
+        }
+      }
+
+      savedMeshes.clear();
+    }
+
+    function applyBodyChams(gh) {
+      const three = gh?.three;
+      const debug = gh?.debug;
+      const player = debug?.player;
+      const actors = debug?.match?.actors;
+      const eye = player?.eye || debug?.gfx?.camera?.position;
+
+      if (!three || !player || !Array.isArray(actors) || !eye) {
+        restoreBodyMeshes();
+        return;
+      }
+
+      const activeMeshes = new Set();
+      const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
+      const headPt = player.pos.clone();
+      const bodyPt = player.pos.clone();
+
+      for (const actor of actors) {
+        if (!actor?.pos || actor.alive === false || actor.isK9 || actor === player) {
+          continue;
+        }
+
+        const isFriend = Number(actor.team) === Number(player.team);
+        const isIrc = Boolean(irc && typeof irc.isIrcUser === 'function' && irc.isIrcUser(actor));
+
+        if (isFriend && !config.friends && !isIrc) {
+          continue;
+        }
+
+        const root = actorRoots.get(actor) || actor.char?.root;
+
+        if (!root || root.visible === false) {
+          continue;
+        }
+
+        let hex;
+
+        if (isIrc) {
+          hex = 0x409cff;
+        } else if (isFriend) {
+          hex = 0x40ff70;
+        } else {
+          bridge.headPoint(actor, headPt);
+          const actorHeight = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+          bodyPt.set(actor.pos.x, actor.pos.y + actorHeight * 0.55, actor.pos.z);
+          const exposed = bridge.worldLineClear(eye, headPt) || bridge.worldLineClear(eye, bodyPt);
+          hex = exposed ? 0xa855f7 : 0xef4444;
+        }
+
+        const mat = getChamsMaterial(three, hex);
+
+        root.traverse((node) => {
+          if (!node?.isMesh) {
+            return;
+          }
+
+          activeMeshes.add(node);
+
+          if (!savedMeshes.has(node)) {
+            savedMeshes.set(node, {
+              material: node.material,
+              renderOrder: node.renderOrder
+            });
+          }
+
+          if (node.material !== mat) {
+            node.material = mat;
+          }
+
+          node.renderOrder = 9999;
+        });
+      }
+
+      for (const [mesh, prev] of savedMeshes) {
+        if (!activeMeshes.has(mesh)) {
+          try {
+            mesh.material = prev.material;
+            mesh.renderOrder = prev.renderOrder;
+          } catch {
+
+          }
+
+          savedMeshes.delete(mesh);
+        }
+      }
+    }
     let overlay = null;
     let overlayCtx = null;
     let overlayWidth = 0;
@@ -245,14 +409,24 @@
       clearOverlay();
 
       if (!bridge.active || !config.enabled) {
+        restoreBodyMeshes();
         return;
       }
 
       const gh = bridge.getGH();
 
       if (!gh?.ready || gh.G.state !== 'playing') {
+        restoreBodyMeshes();
         return;
       }
+
+      if (config.style === 'Body') {
+        installRemoteTracker();
+        applyBodyChams(gh);
+        return;
+      }
+
+      restoreBodyMeshes();
 
       const debug = gh.debug;
       const camera = debug?.gfx?.camera;
@@ -431,15 +605,27 @@
 
       config = {
         enabled: Boolean(data.enabled),
+        style: data.style === 'Body' ? 'Body' : '3D',
         filled: data.filled !== false,
         local: Boolean(data.local),
         friends: data.friends !== false,
         color
       };
 
+      if (!config.enabled || config.style !== 'Body') {
+        restoreBodyMeshes();
+      } else {
+        installRemoteTracker();
+      }
+
       if (!config.enabled) {
         clearOverlay();
       }
+    });
+
+    bridge.onReset(() => {
+      clearOverlay();
+      restoreBodyMeshes();
     });
 
     window.addEventListener('resize', resizeOverlay);

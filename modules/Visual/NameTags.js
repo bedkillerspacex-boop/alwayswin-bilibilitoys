@@ -54,6 +54,8 @@
       local: Boolean(setting(module, 'Show Self', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
       enemies: Boolean(setting(module, 'Show Enemies', false)),
+      health: Boolean(setting(module, 'Show Health', true)),
+      distance: Boolean(setting(module, 'Show Distance', true)),
       scale: Math.max(0.6, Math.min(2, Number(setting(module, 'Scale', 1)) || 1))
     };
     const key = JSON.stringify(config);
@@ -83,6 +85,8 @@
       { t: 'b', n: 'Show Self', d: 'Render a name tag above your own player.', v: 0 },
       { t: 'b', n: 'Show Friends', d: 'Render name tags above teammates.', v: 1 },
       { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 0 },
+      { t: 'b', n: 'Show Health', d: 'Show health bar under the name tag.', v: 1 },
+      { t: 'b', n: 'Show Distance', d: 'Show distance in meters next to the name.', v: 1 },
       { t: 'n', n: 'Scale', d: 'Text scale multiplier.', v: 1.0, min: 0.6, max: 2.0, step: 0.05 }
     ],
     onRender: syncConfig,
@@ -119,6 +123,8 @@
       local: false,
       friends: true,
       enemies: false,
+      health: true,
+      distance: true,
       scale: 1
     };
 
@@ -270,20 +276,36 @@
           const sx = (point.x * 0.5 + 0.5) * width;
           const sy = (-point.y * 0.5 + 0.5) * height;
           const baseName = actor.name || (isFriend ? 'Teammate' : 'Enemy');
-          const label = ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName;
+          const distMeters = Math.round(Math.hypot(actor.pos.x - player.pos.x, actor.pos.y - player.pos.y, actor.pos.z - player.pos.z));
+          const namePart = ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName;
+          const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
           const color = ircInfo ? IRC_COLOR : isFriend ? FRIEND_COLOR : ENEMY_COLOR;
           const padX = 6 * config.scale;
-          const boxH = fontSize + 6 * config.scale;
+          const barH = config.health ? Math.max(2, Math.round(3 * config.scale)) : 0;
+          const boxH = fontSize + 6 * config.scale + (barH ? barH + 2 : 0);
           const textW = overlayCtx.measureText(label).width;
-          const boxW = textW + padX * 2;
+          const boxW = Math.max(textW + padX * 2, 42 * config.scale);
+          const boxX = sx - boxW * 0.5;
+          const boxY = sy - boxH * 0.5;
 
           overlayCtx.fillStyle = 'rgba(10, 12, 18, 0.72)';
-          overlayCtx.fillRect(sx - boxW * 0.5, sy - boxH * 0.5, boxW, boxH);
+          overlayCtx.fillRect(boxX, boxY, boxW, boxH);
           overlayCtx.strokeStyle = color;
           overlayCtx.lineWidth = 1;
-          overlayCtx.strokeRect(sx - boxW * 0.5, sy - boxH * 0.5, boxW, boxH);
+          overlayCtx.strokeRect(boxX, boxY, boxW, boxH);
           overlayCtx.fillStyle = color;
-          overlayCtx.fillText(label, sx, sy + 0.5);
+          overlayCtx.fillText(label, sx, boxY + (fontSize + 6 * config.scale) * 0.5 + 0.5);
+
+          if (config.health) {
+            const hp = Math.max(0, Math.min(100, Number(actor.health ?? 100)));
+            const ratio = hp / 100;
+            const barY = boxY + boxH - barH - 1;
+            const barInnerW = boxW - 2;
+            overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            overlayCtx.fillRect(boxX + 1, barY, barInnerW, barH);
+            overlayCtx.fillStyle = hp > 60 ? '#4ade80' : hp > 30 ? '#facc15' : '#ef4444';
+            overlayCtx.fillRect(boxX + 1, barY, barInnerW * ratio, barH);
+          }
         }
       };
 
@@ -343,6 +365,8 @@
         local: Boolean(data.local),
         friends: data.friends !== false,
         enemies: Boolean(data.enemies),
+        health: data.health !== false,
+        distance: data.distance !== false,
         scale: Math.max(0.6, Math.min(2, Number(data.scale) || 1))
       };
 
