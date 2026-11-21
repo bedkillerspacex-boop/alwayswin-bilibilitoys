@@ -339,6 +339,19 @@
 
     function resolveActorPose(actor) {
       if (!config.legacyAura && actor?.id != null) {
+        const raw = typeof bridge.getRawPlayer === 'function' ? bridge.getRawPlayer(actor) : null;
+
+        if (raw && raw.alive !== false) {
+          const height = raw.sliding ? 0.95 : raw.crouch ? 1.2 : 1.8;
+          const lead = Number(config.lead) || 0;
+          return {
+            x: raw.x + (Number(raw.vx) || 0) * lead,
+            y: raw.y + (Number(raw.vy) || 0) * lead,
+            z: raw.z + (Number(raw.vz) || 0) * lead,
+            height
+          };
+        }
+
         const snap = latestSnapshotPlayers.get(actor.id);
 
         if (snap && snap.alive && performance.now() - snap.at < 1000) {

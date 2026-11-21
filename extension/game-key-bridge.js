@@ -25,6 +25,61 @@
   let latestOnlineWorld = null;
   let latestOnlineWorldAt = 0;
   let latestOnlineJumpHeld = false;
+  let latestRawSnapshot = null;
+  let latestRawSnapshotAt = 0;
+  let engineSnapshotHooked = false;
+
+  function installEngineSnapshotHook() {
+    if (engineSnapshotHooked) {
+      return;
+    }
+
+    engineSnapshotHooked = true;
+    const engineUrl = new URL('client/engine.js', location.href).href;
+
+    import(engineUrl)
+      .then(({ Engine }) => {
+        const proto = Engine?.prototype;
+
+        if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeBridgeSnapshotHooked) {
+          return;
+        }
+
+        const originalSnapshot = proto.snapshot;
+        const wrappedSnapshot = function wrappedBridgeSnapshot(s, ...rest) {
+          if (s && Array.isArray(s.players)) {
+            latestRawSnapshot = s;
+            latestRawSnapshotAt = performance.now();
+          }
+
+          return originalSnapshot.call(this, s, ...rest);
+        };
+
+        Object.defineProperty(wrappedSnapshot, '__solsticeBridgeSnapshotHooked', { value: true });
+        proto.snapshot = wrappedSnapshot;
+      })
+      .catch(() => {
+        engineSnapshotHooked = false;
+      });
+  }
+
+  function getRawSnapshot() {
+    if (!latestRawSnapshot || performance.now() - latestRawSnapshotAt > 1000) {
+      return null;
+    }
+
+    return latestRawSnapshot;
+  }
+
+  function getRawPlayer(actor) {
+    const snap = getRawSnapshot();
+
+    if (!snap || !actor || actor.id == null) {
+      return null;
+    }
+
+    return snap.players.find((p) => p && p.id === actor.id) || null;
+  }
   let lastInputState = '';
   let guardSwallow = true;
   let guardMouse = true;
@@ -221,14 +276,24 @@
   }
 
   function isEnemy(actor, player) {
-    return Boolean(
-      actor &&
-      actor !== player &&
-      actor.pos &&
-      actor.alive !== false &&
-      !actor.isK9 &&
-      Number(actor.team) !== Number(player.team)
-    );
+    if (
+      !actor ||
+      actor === player ||
+      !actor.pos ||
+      actor.alive === false ||
+      actor.isK9 ||
+      Number(actor.team) === Number(player.team)
+    ) {
+      return false;
+    }
+
+    const irc = getFeature('irc');
+
+    if (irc && typeof irc.isProtected === 'function' && irc.isProtected(actor)) {
+      return false;
+    }
+
+    return true;
   }
 
   function worldRayDistance(from, to) {
@@ -649,6 +714,8 @@
     getContext: combatContext,
     isEnemy,
     headPoint,
+    getRawSnapshot,
+    getRawPlayer,
     worldLineClear,
     worldRayDistance,
     rayAabb,
@@ -786,6 +853,7 @@
   timer = setInterval(announce, RETRY_INTERVAL_MS);
   setInterval(installHooks, 250);
   setInterval(installWorldPatch, 500);
+  setInterval(installEngineSnapshotHook, 500);
   setInterval(sendInputState, 33);
 
   setInterval(() => {
