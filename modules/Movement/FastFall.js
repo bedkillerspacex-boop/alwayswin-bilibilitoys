@@ -47,13 +47,15 @@
 
     const triggerVy = Math.max(-2, Math.min(5, Number(setting(module, 'Trigger VY', 2.5)) || 2.5));
     const fallSpeed = Math.max(5, Math.min(25, Number(setting(module, 'Fall Speed', 12)) || 12));
+    const legit = Boolean(setting(module, 'Legit', false));
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'fastfall',
       enabled: Boolean(module.on),
       triggerVy,
-      fallSpeed
+      fallSpeed,
+      legit
     };
     const key = JSON.stringify(config);
 
@@ -79,8 +81,9 @@
     nm: { l: 'fastfall', ls: 'fast fall', n: 'FastFall', ns: 'Fast Fall' },
     disp: 'Fall Speed',
     settings: [
+      { t: 'b', n: 'Legit', d: 'Zeros remaining upward momentum (vy = 0) instead of forcing downward speed.', v: 0 },
       { t: 'n', n: 'Trigger VY', d: 'Vertical velocity threshold to start fast-falling.', v: 2.5, min: -2, max: 5, step: 0.5 },
-      { t: 'n', n: 'Fall Speed', d: 'Downward velocity applied when fast-falling.', v: 12, min: 5, max: 25, step: 0.5 }
+      { t: 'n', n: 'Fall Speed', d: 'Downward velocity applied when fast-falling (non-Legit).', v: 12, min: 5, max: 25, step: 0.5 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -110,6 +113,7 @@
     let enabled = false;
     let triggerVy = 2.5;
     let fallSpeed = 12;
+    let legit = false;
     let simPatched = false;
 
     function installSimPatch() {
@@ -138,15 +142,20 @@
               motionState &&
               !wasGround &&
               !motionState.ground &&
-              motionState.vy <= triggerVy &&
-              motionState.vy > -fallSpeed
+              motionState.vy <= triggerVy
             ) {
               const moving =
                 Math.abs(Number(input?.forward) || 0) > 0.01 ||
                 Math.abs(Number(input?.right) || 0) > 0.01;
 
               if (moving) {
-                motionState.vy = -fallSpeed;
+                if (legit) {
+                  if (motionState.vy > 0) {
+                    motionState.vy = 0;
+                  }
+                } else if (motionState.vy > -fallSpeed) {
+                  motionState.vy = -fallSpeed;
+                }
               }
             }
 
@@ -169,6 +178,7 @@
       enabled = Boolean(data.enabled);
       triggerVy = Math.max(-2, Math.min(5, Number(data.triggerVy) || 2.5));
       fallSpeed = Math.max(5, Math.min(25, Number(data.fallSpeed) || 12));
+      legit = Boolean(data.legit);
 
       if (enabled) {
         installSimPatch();
@@ -186,8 +196,14 @@
         return;
       }
 
-      if (player.vel && player.vel.y <= triggerVy && player.vel.y > -fallSpeed) {
-        player.vel.y = -fallSpeed;
+      if (player.vel && player.vel.y <= triggerVy) {
+        if (legit) {
+          if (player.vel.y > 0) {
+            player.vel.y = 0;
+          }
+        } else if (player.vel.y > -fallSpeed) {
+          player.vel.y = -fallSpeed;
+        }
       }
     }, 25);
   }
