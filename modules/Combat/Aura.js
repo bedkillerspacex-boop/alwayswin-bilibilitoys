@@ -47,11 +47,12 @@
     const focusSetting = module.settings.find((entry) => entry.n === 'Focus Attacker');
 
     if (focusSetting) {
-      focusSetting.vis = mode === 'Switch';
+      focusSetting.vis = true;
     }
 
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 20)) || 0));
     const lead = Math.max(0, Math.min(0.25, Number(setting(module, 'Lead', 0)) || 0));
+    const turnSpeed = Math.max(60, Math.min(1000, Number(setting(module, 'Turn Speed', 1000)) || 1000));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -60,6 +61,7 @@
       mode,
       range,
       lead,
+      turnSpeed,
       focusAttacker: Boolean(setting(module, 'Focus Attacker', true)),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       ads: Boolean(setting(module, 'ADS', false)),
@@ -99,7 +101,7 @@
       {
         t: 'b',
         n: 'Focus Attacker',
-        d: 'In Switch mode, prioritizes enemies who recently damaged you.',
+        d: 'Prioritizes enemies who recently damaged you (works in Switch and Single).',
         v: 1
       },
       {
@@ -110,6 +112,15 @@
         min: 0,
         max: 100,
         step: 0.5
+      },
+      {
+        t: 'n',
+        n: 'Turn Speed',
+        d: 'Aim rotation speed in deg/s (1000 = LockOn infinite speed).',
+        v: 1000,
+        min: 60,
+        max: 1000,
+        step: 10
       },
       {
         t: 'n',
@@ -169,6 +180,7 @@
       mode: 'Switch',
       range: 20,
       lead: 0,
+      turnSpeed: 1000,
       focusAttacker: true,
       wallCheck: true,
       ads: false,
@@ -180,6 +192,9 @@
     let enginePatched = false;
     let lastAttackerId = null;
     let lastAttackerAt = 0;
+    let aimYaw = null;
+    let aimPitch = null;
+    let lastTurnAt = 0;
     const lastAttacks = new WeakMap();
     const latestSnapshotPlayers = new Map();
 
@@ -424,6 +439,11 @@
         return null;
       }
 
+      const attackerFresh =
+        config.focusAttacker &&
+        lastAttackerId != null &&
+        performance.now() - lastAttackerAt < 3000;
+
       if (config.mode === 'Single') {
         candidates.sort((left, right) => left.distance - right.distance);
 
@@ -435,12 +455,16 @@
             candidates.unshift(current);
           }
         }
-      } else {
-        const attackerFresh =
-          config.focusAttacker &&
-          lastAttackerId != null &&
-          performance.now() - lastAttackerAt < 3000;
 
+        if (attackerFresh) {
+          const attackerIndex = candidates.findIndex((entry) => entry.actor?.id === lastAttackerId);
+
+          if (attackerIndex >= 0) {
+            const [attacker] = candidates.splice(attackerIndex, 1);
+            candidates.unshift(attacker);
+          }
+        }
+      } else {
         candidates.sort((left, right) => {
           if (attackerFresh) {
             const leftAttacker = left.actor?.id === lastAttackerId;
@@ -577,9 +601,46 @@
         ? dir.clone()
         : debug.player.pos.clone();
 
-      out.x = dx / length;
-      out.y = dy / length;
-      out.z = dz / length;
+      const turnSpeed = Number(config.turnSpeed) || 1000;
+
+      if (turnSpeed >= 1000) {
+        aimYaw = Math.atan2(-dx, -dz);
+        aimPitch = Math.asin(bridge.clamp(dy / length, -1, 1));
+        out.x = dx / length;
+        out.y = dy / length;
+        out.z = dz / length;
+        return out;
+      }
+
+      const targetYaw = Math.atan2(-dx, -dz);
+      const targetPitch = Math.asin(bridge.clamp(dy / length, -1, 1));
+      const now = performance.now();
+      const dt = lastTurnAt ? Math.min(0.1, Math.max(0.001, (now - lastTurnAt) / 1000)) : 1 / 60;
+      lastTurnAt = now;
+
+      if (aimYaw === null || aimPitch === null) {
+        aimYaw = Number(debug.player?.yaw) || targetYaw;
+        aimPitch = Number(debug.player?.pitch) || targetPitch;
+      }
+
+      const maxStep = (turnSpeed * Math.PI / 180) * dt;
+      const yawDiff = bridge.wrapAngle(targetYaw - aimYaw);
+      const pitchDiff = targetPitch - aimPitch;
+      const totalDiff = Math.hypot(yawDiff, pitchDiff);
+
+      if (totalDiff <= maxStep || totalDiff < 1e-6) {
+        aimYaw = targetYaw;
+        aimPitch = targetPitch;
+      } else {
+        const scale = maxStep / totalDiff;
+        aimYaw = bridge.wrapAngle(aimYaw + yawDiff * scale);
+        aimPitch = bridge.clamp(aimPitch + pitchDiff * scale, -1.5, 1.5);
+      }
+
+      const cosPitch = Math.cos(aimPitch);
+      out.x = -Math.sin(aimYaw) * cosPitch;
+      out.y = Math.sin(aimPitch);
+      out.z = -Math.cos(aimYaw) * cosPitch;
       return out;
     }
 
@@ -662,6 +723,7 @@
 
       const range = Number(data.range);
       const lead = Number(data.lead);
+      const turnSpeed = Number(data.turnSpeed);
       const mode = data.mode === 'Single' ? 'Single' : 'Switch';
 
       if (config.mode !== mode) {
@@ -673,6 +735,7 @@
         mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
         lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0,
+        turnSpeed: Number.isFinite(turnSpeed) ? bridge.clamp(turnSpeed, 60, 1000) : 1000,
         focusAttacker: data.focusAttacker !== false,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads),
@@ -740,6 +803,9 @@
       latestSnapshotPlayers.clear();
       lastAttackerId = null;
       lastAttackerAt = 0;
+      aimYaw = null;
+      aimPitch = null;
+      lastTurnAt = 0;
       releaseAds();
       bridge.requestAutoFire('aura', false);
     });
