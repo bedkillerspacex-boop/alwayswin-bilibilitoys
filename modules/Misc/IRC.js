@@ -75,8 +75,8 @@
       channel: CHANNEL,
       type: 'config',
       module: 'irc',
-      enabled: Boolean(module.on) && Boolean(sessionToken),
-      protectIrc: boolOf(module, 'Protect IRC', true),
+      enabled: Boolean(sessionToken),
+      protectIrc: Boolean(module.on) && boolOf(module, 'Protect IRC', true),
       token: sessionToken,
       ircName: sessionIrcName,
       serverOrigin: getServerOrigin()
@@ -310,6 +310,8 @@
   } else {
     tryBootLogin();
   }
+
+  setInterval(syncConfig, 500);
 
   function bootGame() {
     let attempts = 0;

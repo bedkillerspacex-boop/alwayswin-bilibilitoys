@@ -53,6 +53,7 @@
       enabled: Boolean(module.on),
       local: Boolean(setting(module, 'Show Self', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
+      enemies: Boolean(setting(module, 'Show Enemies', false)),
       scale: Math.max(0.6, Math.min(2, Number(setting(module, 'Scale', 1)) || 1))
     };
     const key = JSON.stringify(config);
@@ -81,6 +82,7 @@
     settings: [
       { t: 'b', n: 'Show Self', d: 'Render a name tag above your own player.', v: 0 },
       { t: 'b', n: 'Show Friends', d: 'Render name tags above teammates.', v: 1 },
+      { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 0 },
       { t: 'n', n: 'Scale', d: 'Text scale multiplier.', v: 1.0, min: 0.6, max: 2.0, step: 0.05 }
     ],
     onRender: syncConfig,
@@ -116,6 +118,7 @@
       enabled: false,
       local: false,
       friends: true,
+      enemies: false,
       scale: 1
     };
 
@@ -237,6 +240,10 @@
             continue;
           }
 
+          if (!isSelf && !isFriend && !config.enemies && !ircInfo) {
+            continue;
+          }
+
           bridge.headPoint(actor, point);
           point.y += 0.34;
 
@@ -335,6 +342,7 @@
         enabled: Boolean(data.enabled),
         local: Boolean(data.local),
         friends: data.friends !== false,
+        enemies: Boolean(data.enemies),
         scale: Math.max(0.6, Math.min(2, Number(data.scale) || 1))
       };
 
