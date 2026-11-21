@@ -45,6 +45,7 @@
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 20)) || 0));
+    const lead = Math.max(0, Math.min(0.25, Number(setting(module, 'Lead', 0.04)) || 0));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -52,6 +53,7 @@
       enabled: Boolean(module.on),
       mode,
       range,
+      lead,
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       ads: Boolean(setting(module, 'ADS', false)),
       legacyAura: Boolean(setting(module, 'LegacyAura', false))
@@ -95,6 +97,15 @@
         min: 0,
         max: 100,
         step: 0.5
+      },
+      {
+        t: 'n',
+        n: 'Lead',
+        d: 'Velocity prediction time (seconds) for fast-moving targets.',
+        v: 0.04,
+        min: 0,
+        max: 0.25,
+        step: 0.01
       },
       {
         t: 'b',
@@ -144,6 +155,7 @@
       enabled: false,
       mode: 'Switch',
       range: 20,
+      lead: 0.04,
       wallCheck: true,
       ads: false,
       legacyAura: false
@@ -183,6 +195,9 @@
                     x: p.x,
                     y: p.y,
                     z: p.z,
+                    vx: Number(p.vx) || 0,
+                    vy: Number(p.vy) || 0,
+                    vz: Number(p.vz) || 0,
                     crouch: Boolean(p.crouch),
                     sliding: Boolean(p.sliding),
                     alive: p.alive !== false,
@@ -262,7 +277,13 @@
 
         if (snap && snap.alive && performance.now() - snap.at < 1000) {
           const height = snap.sliding ? 0.95 : snap.crouch ? 1.2 : 1.8;
-          return { x: snap.x, y: snap.y, z: snap.z, height };
+          const lead = Number(config.lead) || 0;
+          return {
+            x: snap.x + snap.vx * lead,
+            y: snap.y + snap.vy * lead,
+            z: snap.z + snap.vz * lead,
+            height
+          };
         }
       }
 
@@ -293,7 +314,7 @@
 
       const pose = resolveActorPose(actor);
       const eyeHeight = pose.height < 1.1 ? 0.72 : pose.height < 1.4 ? 1.0 : 1.62;
-      out.set(pose.x, pose.y + eyeHeight + 0.04, pose.z);
+      out.set(pose.x, pose.y + eyeHeight, pose.z);
       return out;
     }
 
@@ -461,18 +482,24 @@
       let origin = baseOrigin;
       const slideDerp = typeof bridge.getFeature === 'function' ? bridge.getFeature('slidederp') : null;
 
-      if (
-        !config.legacyAura &&
-        slideDerp &&
-        typeof slideDerp.isActive === 'function' &&
-        slideDerp.isActive() &&
-        slideDerp.isSilent() &&
-        debug.player?.pos
-      ) {
+      if (!config.legacyAura && debug.player?.pos) {
+        const player = debug.player;
+        let localEyeHeight =
+          player.mode === 'slide' ? 0.72 : player.stance === 'crouch' ? 1.0 : 1.62;
+
+        if (
+          slideDerp &&
+          typeof slideDerp.isActive === 'function' &&
+          slideDerp.isActive() &&
+          slideDerp.isSilent()
+        ) {
+          localEyeHeight = slideDerp.getServerEyeHeight();
+        }
+
         origin = {
-          x: baseOrigin.x,
-          y: debug.player.pos.y + slideDerp.getServerEyeHeight(),
-          z: baseOrigin.z
+          x: player.pos.x,
+          y: player.pos.y + localEyeHeight,
+          z: player.pos.z
         };
       }
 
@@ -579,6 +606,7 @@
       }
 
       const range = Number(data.range);
+      const lead = Number(data.lead);
       const mode = data.mode === 'Single' ? 'Single' : 'Switch';
 
       if (config.mode !== mode) {
@@ -589,6 +617,7 @@
         enabled: Boolean(data.enabled),
         mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
+        lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0.04,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads),
         legacyAura: Boolean(data.legacyAura)
