@@ -383,10 +383,56 @@
       }
     });
 
-    setInterval(() => {
-      if (enabled && !hooked) {
-        tryHook();
+      setInterval(() => {
+        if (enabled && !hooked) {
+          tryHook();
+        }
+      }, 500);
+
+      function updateCameraMatrices(camera) {
+        if (typeof camera?.updateMatrixWorld === 'function') {
+          try {
+            camera.updateMatrixWorld();
+          } catch {
+
+          }
+        }
+
+        if (camera?.matrixWorld && camera?.matrixWorldInverse?.copy) {
+          try {
+            camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+          } catch {
+
+          }
+        }
       }
-    }, 500);
+
+      if (typeof bridge.provide === 'function') {
+        bridge.provide('thirdperson', {
+          withCamera(camera, fn) {
+            if (!enabled || !camera) {
+              return fn();
+            }
+
+            if (applied.x || applied.y || applied.z) {
+              updateCameraMatrices(camera);
+              return fn();
+            }
+
+            const restore = pushCamera(camera);
+            updateCameraMatrices(camera);
+
+            try {
+              return fn();
+            } finally {
+              if (restore) {
+                restore();
+              }
+
+              updateCameraMatrices(camera);
+            }
+          }
+        });
+      }
   }
 })();

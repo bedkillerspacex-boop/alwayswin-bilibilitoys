@@ -262,16 +262,17 @@
         return;
       }
 
-      const point = player.pos.clone();
-      const forward = player.pos.clone();
-      camera.getWorldDirection(forward);
-      const width = overlayWidth;
-      const height = overlayHeight;
+      const renderActors = () => {
+        const point = player.pos.clone();
+        const forward = player.pos.clone();
+        camera.getWorldDirection(forward);
+        const width = overlayWidth;
+        const height = overlayHeight;
 
-      overlayCtx.lineJoin = 'round';
-      overlayCtx.lineWidth = 2;
+        overlayCtx.lineJoin = 'round';
+        overlayCtx.lineWidth = 2;
 
-      for (const actor of actors) {
+        for (const actor of actors) {
         if (!actor?.pos || actor.alive === false || actor.isK9) {
           continue;
         }
@@ -364,6 +365,15 @@
 
         overlayCtx.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 1)`;
         overlayCtx.stroke();
+        }
+      };
+
+      const thirdPerson = typeof bridge.getFeature === 'function' ? bridge.getFeature('thirdperson') : null;
+
+      if (thirdPerson && typeof thirdPerson.withCamera === 'function') {
+        thirdPerson.withCamera(camera, renderActors);
+      } else {
+        renderActors();
       }
     }
 
