@@ -1,9 +1,11 @@
 (() => {
   'use strict';
 
-  /* NoSlowdown：开枪 / 冲刺时不再被武器重量拖慢。
-     arsenal.sprintLock / blocksSprint / sinceFire 是游戏里可见的三个闸口，
-     这里全部顶住（和 Aura 用的是同一套接口，但互不抢属性描述符）。 */
+  /* NoSlowdown：开枪 / 换弹 / 跳跃落地 / 开镜时保持满速移动。
+     同时覆盖：
+     1. arsenal.blocksSprint（sinceFire / adsHeld / melee / throw）与 sprintLock / moveSlow
+     2. player.update 前的 player.landSlow、player.adsK 与武器 def.mobility
+     3. 联机 World.prototype.move 本地预测的 ADS 减速位（buttons & 8） */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -69,14 +71,14 @@
 
   register({
     name: 'NoSlowdown',
-    desc: 'Keeps full movement speed while shooting and scoping.',
+    desc: 'Keeps full movement speed while shooting, reloading, jumping, and scoping.',
     cat: 'Movement',
     nm: { l: 'noslowdown', ls: 'no slowdown', n: 'NoSlowdown', ns: 'No Slowdown' },
     disp: '',
     settings: [
-      { t: 'b', n: 'No Sprint Lock', d: 'Clears the weapon sprint lock every tick.', v: 1 },
+      { t: 'b', n: 'No Sprint Lock', d: 'Clears sprint lock, landing slow, and weapon mobility penalty.', v: 1 },
       { t: 'b', n: 'No Fire Slow', d: 'Firing no longer blocks sprinting.', v: 1 },
-      { t: 'b', n: 'No Ads Slow', d: 'Aiming down sights keeps walking speed.', v: 0 }
+      { t: 'b', n: 'No Ads Slow', d: 'Aiming down sights keeps full sprinting/walking speed.', v: 0 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -103,6 +105,9 @@
   }
 
   function installGame(bridge) {
+    const ADS_BUTTON = 8;
+    const originalMobility = new WeakMap();
+
     let enabled = false;
     let noSprintLock = true;
     let noFireSlow = true;
@@ -113,7 +118,66 @@
       return bridge.getGH()?.debug?.arsenal;
     }
 
-    /* 把「开火后禁止冲刺」的计时器骗过去 */
+    function restoreAllMobility() {
+      const current = arsenal();
+
+      if (!current?.slots) {
+        return;
+      }
+
+      for (const slot of current.slots) {
+        const def = slot?.def;
+
+        if (def && originalMobility.has(def)) {
+          def.mobility = originalMobility.get(def);
+        }
+      }
+    }
+
+    function clearSlowdownState() {
+      const debug = bridge.getGH()?.debug;
+      const current = debug?.arsenal;
+      const player = debug?.player;
+
+      if (current) {
+        if (noSprintLock) {
+          if (Number(current.sprintLock)) {
+            current.sprintLock = 0;
+          }
+
+          for (const name of ['moveSlow', 'moveSlowdown', 'slowK', 'walkSlow']) {
+            if (typeof current[name] === 'number' && current[name] > 0) {
+              current[name] = 0;
+            }
+          }
+
+          const def = current.slot?.def;
+
+          if (def && typeof def.mobility === 'number') {
+            if (!originalMobility.has(def)) {
+              originalMobility.set(def, def.mobility);
+            }
+
+            if (def.mobility < 1) {
+              def.mobility = 1;
+            }
+          }
+        }
+      }
+
+      if (player) {
+        if (noSprintLock && typeof player.landSlow === 'number' && player.landSlow > 0) {
+          player.landSlow = 0;
+        }
+
+        if (noAdsSlow) {
+          if (typeof player.adsK === 'number' && player.adsK > 0) player.adsK = 0;
+          if (typeof player.slowK === 'number' && player.slowK > 0) player.slowK = 0;
+        }
+      }
+    }
+
+    /* 把 blocksSprint 里所有阻止冲刺的条件绕过去 */
     function patchBlocksSprint() {
       const current = arsenal();
 
@@ -128,14 +192,29 @@
 
       const original = current.blocksSprint;
       const wrapped = function wrappedNoSlowdownBlocksSprint(...args) {
-        if (enabled && noFireSlow) {
+        if (enabled) {
           const sinceFire = this.sinceFire;
-          this.sinceFire = 999;
+          const adsHeld = this.adsHeld;
+          const state = this.state;
+
+          if (noFireSlow) {
+            this.sinceFire = 999;
+          }
+
+          if (noAdsSlow) {
+            this.adsHeld = false;
+          }
+
+          if (noSprintLock && (state === 'melee' || state === 'throw')) {
+            this.state = 'ready';
+          }
 
           try {
             return original.apply(this, args);
           } finally {
             this.sinceFire = sinceFire;
+            this.adsHeld = adsHeld;
+            this.state = state;
           }
         }
 
@@ -159,40 +238,37 @@
 
       if (enabled) {
         patchBlocksSprint();
+        if (!noSprintLock) {
+          restoreAllMobility();
+        }
+      } else {
+        restoreAllMobility();
       }
     });
 
+    bridge.onPlayerUpdate(() => {
+      if (enabled) {
+        patchBlocksSprint();
+        clearSlowdownState();
+      }
+    }, 25);
+
     bridge.onAfterArsenalUpdate(() => {
-      if (!enabled) {
+      if (enabled) {
+        clearSlowdownState();
+      }
+    }, 25);
+
+    bridge.onWorldMove((context) => {
+      if (!enabled || !noAdsSlow || !context?.localInput || !(context.localInput.buttons & ADS_BUTTON)) {
         return;
       }
 
-      const current = arsenal();
-
-      if (!current) {
-        return;
+      if (context.localInput === context.input) {
+        context.localInput = { ...context.input };
       }
 
-      if (noSprintLock) {
-        if (Number(current.sprintLock)) {
-          current.sprintLock = 0;
-        }
-
-        for (const name of ['moveSlow', 'moveSlowdown', 'slowK', 'walkSlow']) {
-          if (typeof current[name] === 'number' && current[name] > 0) {
-            current[name] = 0;
-          }
-        }
-      }
-
-      if (noAdsSlow) {
-        const player = bridge.getGH()?.debug?.player;
-
-        if (player) {
-          if (typeof player.adsK === 'number' && player.adsK > 0) player.adsK = 0;
-          if (typeof player.slowK === 'number' && player.slowK > 0) player.slowK = 0;
-        }
-      }
+      context.localInput.buttons &= ~ADS_BUTTON;
     }, 25);
 
     setInterval(() => {
