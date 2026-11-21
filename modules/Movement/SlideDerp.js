@@ -55,7 +55,8 @@
       module: 'slidederp',
       enabled: Boolean(module.on),
       interval,
-      silent: Boolean(setting(module, 'Silent', true))
+      silent: Boolean(setting(module, 'Silent', true)),
+      onlyForward: Boolean(setting(module, 'Only Forward', true))
     };
     const key = JSON.stringify(config);
 
@@ -82,7 +83,8 @@
     disp: 'Interval',
     settings: [
       { t: 'n', n: 'Interval', d: 'Ticks between slide and sprint toggles.', v: 2, min: 1, max: 20, step: 1 },
-      { t: 'b', n: 'Silent', d: 'Applies slide derp only to server input.', v: 1 }
+      { t: 'b', n: 'Silent', d: 'Applies slide derp only to server input.', v: 1 },
+      { t: 'b', n: 'Only Forward', d: 'Only triggers SlideDerp while moving forward.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -116,6 +118,7 @@
     let enabled = false;
     let interval = 2;
     let silent = true;
+    let onlyForward = true;
     let tickCount = 0;
     let lastSeq = -1;
     let activeNow = false;
@@ -151,6 +154,7 @@
       enabled = Boolean(data.enabled);
       interval = Math.max(1, Math.min(20, Math.round(Number(data.interval) || 2)));
       silent = data.silent !== false;
+      onlyForward = data.onlyForward !== false;
 
       if (!enabled) {
         tickCount = 0;
@@ -169,7 +173,9 @@
       }
 
       const input = context.input;
-      const moving = Math.abs(Number(input.forward) || 0) > 0.01 || Math.abs(Number(input.right) || 0) > 0.01;
+      const forward = Number(input.forward) || 0;
+      const right = Number(input.right) || 0;
+      const moving = onlyForward ? forward > 0.01 : Math.abs(forward) > 0.01 || Math.abs(right) > 0.01;
 
       if (!moving || !isFighting()) {
         activeNow = false;
