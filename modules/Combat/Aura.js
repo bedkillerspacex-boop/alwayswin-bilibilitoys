@@ -484,6 +484,7 @@
 
       if (!config.legacyAura && debug.player?.pos) {
         const player = debug.player;
+        const airborne = player.e && player.e.onGround === false;
         let localEyeHeight =
           player.mode === 'slide' ? 0.72 : player.stance === 'crouch' ? 1.0 : 1.62;
 
@@ -496,9 +497,11 @@
           localEyeHeight = slideDerp.getServerEyeHeight();
         }
 
+        const airCompensateY = airborne ? -(Number(player.vel?.y) || 0) * 0.016 : 0;
+
         origin = {
           x: player.pos.x,
-          y: player.pos.y + localEyeHeight,
+          y: player.pos.y + localEyeHeight + airCompensateY,
           z: player.pos.z
         };
       }

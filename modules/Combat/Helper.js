@@ -3,8 +3,9 @@
 
   /* Helper：
      1. 主武器打空且未在换弹时，自动切到副武器补枪
-     2. 手持副武器时，击杀目标后或停止射击（Idle）时自动切回主武器
-     3. 主/副武器处于 reload 状态时绝不打断换弹，且换弹完成后等待 0.3s（300ms）再允许切枪 */
+     2. 手持副武器时，仅在周围没有可攻击敌人（或副武器打空）且未在换弹时才切回主武器，避免对群杀一个就切回
+     3. 主/副武器换弹中绝不打断，且换弹完成后等待 0.3s 才允许切枪；每次切枪带 0.4s 冷却防重复换弹
+     4. 可选「Fire While Swap」（默认关）：切枪（holster/draw）期间仍允许开火 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -48,7 +49,8 @@
       enabled: Boolean(module.on),
       autoSecondary: boolOf(module, 'Auto Secondary', true),
       returnOnKill: boolOf(module, 'Return On Kill', true),
-      returnWhenIdle: boolOf(module, 'Return When Idle', true)
+      returnWhenIdle: boolOf(module, 'Return When Idle', true),
+      fireWhileSwap: boolOf(module, 'Fire While Swap', false)
     };
     const key = JSON.stringify(config);
 
@@ -69,14 +71,15 @@
 
   register({
     name: 'Helper',
-    desc: 'Swaps to secondary when primary runs out, returns on kill/idle, and never interrupts reloads (+0.3s grace).',
+    desc: 'Swaps to secondary when primary runs out, returns when no enemies remain, and optionally fires while swapping.',
     cat: 'Combat',
     nm: { l: 'helper', ls: 'helper', n: 'Helper', ns: 'Helper' },
     disp: '',
     settings: [
       { t: 'b', n: 'Auto Secondary', d: 'Swaps to secondary when primary ammo reaches 0.', v: 1 },
-      { t: 'b', n: 'Return On Kill', d: 'Swaps back to primary after scoring a kill.', v: 1 },
-      { t: 'b', n: 'Return When Idle', d: 'Swaps back to primary when not firing on secondary.', v: 1 }
+      { t: 'b', n: 'Return On Kill', d: 'Swaps back to primary after kills once no enemies remain.', v: 1 },
+      { t: 'b', n: 'Return When Idle', d: 'Swaps back to primary when idle and no enemies remain.', v: 1 },
+      { t: 'b', n: 'Fire While Swap', d: 'Allows firing during holster/draw swap animations.', v: 0 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -105,17 +108,21 @@
   function installGame(bridge) {
     const SWAPPABLE_STATES = new Set(['ready', 'inspect', 'draw']);
     const RELOAD_GRACE_MS = 300;
+    const SWAP_COOLDOWN_MS = 400;
     const IDLE_RETURN_DELAY_MS = 500;
     const IDLE_SINCE_FIRE_SEC = 0.5;
+    const ENEMY_CHECK_RANGE = 30;
 
     let enabled = false;
     let autoSecondary = true;
     let returnOnKill = true;
     let returnWhenIdle = true;
+    let fireWhileSwap = false;
 
     let lastKills = null;
     let lastArsenalState = null;
     let reloadGraceUntil = 0;
+    let swapCooldownUntil = 0;
     let primaryEmptyHandled = false;
     let pendingReturnToPrimary = false;
     let swappedToSecondaryAt = 0;
@@ -124,19 +131,94 @@
       lastKills = null;
       lastArsenalState = null;
       reloadGraceUntil = 0;
+      swapCooldownUntil = 0;
       primaryEmptyHandled = false;
       pendingReturnToPrimary = false;
       swappedToSecondaryAt = 0;
     }
 
-    function isFiring(debug, state) {
+    function isFireHeld(debug) {
       const input = debug?.input;
-      const fireHeld =
-        typeof input?.any === 'function'
-          ? Boolean(input.any(['Mouse0']))
-          : Boolean(input?.keys?.has('Mouse0'));
 
-      return fireHeld || Boolean(state.triggerDown) || Number(state.semiBuf) > 0;
+      if (!input) {
+        return false;
+      }
+
+      if (typeof input.any === 'function') {
+        return Boolean(input.any(['Mouse0']));
+      }
+
+      return Boolean(input.keys?.has('Mouse0'));
+    }
+
+    function isFiring(debug, state) {
+      return isFireHeld(debug) || Boolean(state.triggerDown) || Number(state.semiBuf) > 0;
+    }
+
+    function hasActiveEnemy(debug, player) {
+      const aura = typeof bridge.getFeature === 'function' ? bridge.getFeature('aura') : null;
+
+      if (aura && typeof aura.getTarget === 'function' && aura.getTarget()) {
+        return true;
+      }
+
+      const actors = debug?.match?.actors;
+      const eye = player?.eye || debug?.gfx?.camera?.position;
+
+      if (!Array.isArray(actors) || !eye) {
+        return false;
+      }
+
+      const point = player.pos.clone();
+
+      for (const actor of actors) {
+        if (!bridge.isEnemy(actor, player)) {
+          continue;
+        }
+
+        bridge.headPoint(actor, point);
+        const dist = Math.hypot(point.x - eye.x, point.y - eye.y, point.z - eye.z);
+
+        if (dist <= ENEMY_CHECK_RANGE && bridge.worldLineClear(eye, point)) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    function tryFireWhileSwap(debug, state, player) {
+      if (!fireWhileSwap || (state.state !== 'holster' && state.state !== 'draw')) {
+        return;
+      }
+
+      const slot = state.slot;
+      const def = slot?.def;
+
+      if (
+        !slot ||
+        !def ||
+        !player?.alive ||
+        player.mode === 'mantle' ||
+        slot.ammo <= 0 ||
+        Number(state.cool) > 0 ||
+        Number(state.sprintLock) > 0 ||
+        Number(state.pumpWait) > 0 ||
+        typeof state._fire !== 'function'
+      ) {
+        return;
+      }
+
+      const wantsFire = def.auto ? isFireHeld(debug) : Number(state.semiBuf) > 0;
+
+      if (!wantsFire) {
+        return;
+      }
+
+      const ads = Number(state.ads) || 0;
+      const adsSmooth = ads * ads * (3 - 2 * ads);
+      state.semiBuf = 0;
+      state._fire(slot, def, adsSmooth);
     }
 
     function updateHelper() {
@@ -156,11 +238,14 @@
 
       lastArsenalState = state.state;
 
+      tryFireWhileSwap(debug, state, player);
+
       const kills = Number(player.kills) || 0;
 
       if (!player.alive) {
         lastKills = kills;
         reloadGraceUntil = 0;
+        swapCooldownUntil = 0;
         primaryEmptyHandled = false;
         pendingReturnToPrimary = false;
         swappedToSecondaryAt = 0;
@@ -191,7 +276,9 @@
 
       if (
         state.state === 'reload' ||
+        state.state === 'holster' ||
         now < reloadGraceUntil ||
+        now < swapCooldownUntil ||
         !SWAPPABLE_STATES.has(state.state) ||
         typeof state.swap !== 'function'
       ) {
@@ -199,19 +286,23 @@
       }
 
       if (state.cur === 1 && primary) {
-        if (pendingReturnToPrimary) {
+        const enemyLeft = secondaryAmmo > 0 && hasActiveEnemy(debug, player);
+
+        if (pendingReturnToPrimary && !enemyLeft) {
           pendingReturnToPrimary = false;
+          swapCooldownUntil = now + SWAP_COOLDOWN_MS;
           state.swap(0);
           return;
         }
 
-        if (returnWhenIdle) {
+        if (returnWhenIdle && !enemyLeft) {
           const firing = isFiring(debug, state);
           const sinceFire = Number(state.sinceFire) || 0;
 
           if (firing) {
             swappedToSecondaryAt = now;
           } else if (now - swappedToSecondaryAt >= IDLE_RETURN_DELAY_MS && sinceFire >= IDLE_SINCE_FIRE_SEC) {
+            swapCooldownUntil = now + SWAP_COOLDOWN_MS;
             state.swap(0);
             return;
           }
@@ -228,6 +319,7 @@
       ) {
         primaryEmptyHandled = true;
         swappedToSecondaryAt = now;
+        swapCooldownUntil = now + SWAP_COOLDOWN_MS;
         state.swap(1);
       }
     }
@@ -247,6 +339,7 @@
       autoSecondary = data.autoSecondary !== false;
       returnOnKill = data.returnOnKill !== false;
       returnWhenIdle = data.returnWhenIdle !== false;
+      fireWhileSwap = Boolean(data.fireWhileSwap);
     });
 
     bridge.onAfterArsenalUpdate(() => {
