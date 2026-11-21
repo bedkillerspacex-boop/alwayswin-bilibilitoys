@@ -63,6 +63,7 @@
       lead,
       turnSpeed,
       focusAttacker: Boolean(setting(module, 'Focus Attacker', true)),
+      deprioritizeSpawn: Boolean(setting(module, 'Deprioritize Spawn', true)),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       ads: Boolean(setting(module, 'ADS', false)),
       legacyAura: Boolean(setting(module, 'LegacyAura', false))
@@ -102,6 +103,12 @@
         t: 'b',
         n: 'Focus Attacker',
         d: 'Prioritizes enemies who recently damaged you (works in Switch and Single).',
+        v: 1
+      },
+      {
+        t: 'b',
+        n: 'Deprioritize Spawn',
+        d: 'Lowers priority of newly spawned enemies so normal enemies are targeted first.',
         v: 1
       },
       {
@@ -182,6 +189,7 @@
       lead: 0,
       turnSpeed: 1000,
       focusAttacker: true,
+      deprioritizeSpawn: true,
       wallCheck: true,
       ads: false,
       legacyAura: false
@@ -197,6 +205,9 @@
     let lastTurnAt = 0;
     const lastAttacks = new WeakMap();
     const latestSnapshotPlayers = new Map();
+    const spawnedAtMap = new Map();
+    const prevAliveMap = new Map();
+    const SPAWN_PROTECT_MS = 1500;
 
     function installSnapshotTracker() {
       if (enginePatched) {
@@ -222,6 +233,15 @@
 
               for (const p of s.players) {
                 if (p && p.id != null) {
+                  const alive = p.alive !== false;
+                  const wasAlive = prevAliveMap.get(p.id);
+
+                  if (alive && wasAlive === false) {
+                    spawnedAtMap.set(p.id, now);
+                  }
+
+                  prevAliveMap.set(p.id, alive);
+
                   latestSnapshotPlayers.set(p.id, {
                     x: p.x,
                     y: p.y,
@@ -231,7 +251,7 @@
                     vz: Number(p.vz) || 0,
                     crouch: Boolean(p.crouch),
                     sliding: Boolean(p.sliding),
-                    alive: p.alive !== false,
+                    alive,
                     at: now
                   });
                 }
@@ -412,6 +432,28 @@
       return null;
     }
 
+    function isSpawnProtected(actor, debug) {
+      if (!config.deprioritizeSpawn || !actor) {
+        return false;
+      }
+
+      if (actor.id != null) {
+        const spawnedAt = spawnedAtMap.get(actor.id);
+
+        if (spawnedAt != null && performance.now() - spawnedAt < SPAWN_PROTECT_MS) {
+          return true;
+        }
+      }
+
+      const gameTime = typeof debug?.ctx?.time === 'function' ? debug.ctx.time() : null;
+
+      if (gameTime !== null && typeof actor.spawnT === 'number' && gameTime - actor.spawnT < SPAWN_PROTECT_MS / 1000) {
+        return true;
+      }
+
+      return false;
+    }
+
     function selectTarget(context) {
       const { player, camera, debug, actors } = context;
       const eye = config.legacyAura ? camera.position : player.eye || camera.position;
@@ -432,7 +474,7 @@
           continue;
         }
 
-        candidates.push({ actor, distance });
+        candidates.push({ actor, distance, spawnProtected: isSpawnProtected(actor, debug) });
       }
 
       if (candidates.length === 0) {
@@ -445,7 +487,13 @@
         performance.now() - lastAttackerAt < 3000;
 
       if (config.mode === 'Single') {
-        candidates.sort((left, right) => left.distance - right.distance);
+        candidates.sort((left, right) => {
+          if (left.spawnProtected !== right.spawnProtected) {
+            return left.spawnProtected ? 1 : -1;
+          }
+
+          return left.distance - right.distance;
+        });
 
         if (singleTarget) {
           const currentIndex = candidates.findIndex((entry) => entry.actor === singleTarget);
@@ -473,6 +521,10 @@
             if (leftAttacker !== rightAttacker) {
               return leftAttacker ? -1 : 1;
             }
+          }
+
+          if (left.spawnProtected !== right.spawnProtected) {
+            return left.spawnProtected ? 1 : -1;
           }
 
           const leftTime = lastAttacks.get(left.actor) || 0;
@@ -737,6 +789,7 @@
         lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0,
         turnSpeed: Number.isFinite(turnSpeed) ? bridge.clamp(turnSpeed, 60, 1000) : 1000,
         focusAttacker: data.focusAttacker !== false,
+        deprioritizeSpawn: data.deprioritizeSpawn !== false,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads),
         legacyAura: Boolean(data.legacyAura)
@@ -801,6 +854,8 @@
 
     bridge.onReset(() => {
       latestSnapshotPlayers.clear();
+      spawnedAtMap.clear();
+      prevAliveMap.clear();
       lastAttackerId = null;
       lastAttackerAt = 0;
       aimYaw = null;
