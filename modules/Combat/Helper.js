@@ -2,9 +2,9 @@
   'use strict';
 
   /* Helper：
-     1. 主武器打空且未在换弹时，自动切到副武器补枪（绝不打断主武器换弹）
+     1. 主武器打空且未在换弹时，自动切到副武器补枪
      2. 手持副武器时，击杀目标后或停止射击（Idle）时自动切回主武器
-     通过 primaryEmptyHandled 防止切回主武器后因主武器仍为 0 发而反复来回切枪。 */
+     3. 主/副武器处于 reload 状态时绝不打断换弹，且换弹完成后等待 0.3s（300ms）再允许切枪 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -69,7 +69,7 @@
 
   register({
     name: 'Helper',
-    desc: 'Swaps to secondary when primary runs out (without interrupting reload), and returns to primary on kill or when idle.',
+    desc: 'Swaps to secondary when primary runs out, returns on kill/idle, and never interrupts reloads (+0.3s grace).',
     cat: 'Combat',
     nm: { l: 'helper', ls: 'helper', n: 'Helper', ns: 'Helper' },
     disp: '',
@@ -103,8 +103,8 @@
   }
 
   function installGame(bridge) {
-    const PRIMARY_SWAPPABLE_STATES = new Set(['ready', 'inspect', 'draw']);
-    const SECONDARY_SWAPPABLE_STATES = new Set(['ready', 'reload', 'inspect', 'draw']);
+    const SWAPPABLE_STATES = new Set(['ready', 'inspect', 'draw']);
+    const RELOAD_GRACE_MS = 300;
     const IDLE_RETURN_DELAY_MS = 500;
     const IDLE_SINCE_FIRE_SEC = 0.5;
 
@@ -114,12 +114,18 @@
     let returnWhenIdle = true;
 
     let lastKills = null;
+    let lastArsenalState = null;
+    let reloadGraceUntil = 0;
     let primaryEmptyHandled = false;
+    let pendingReturnToPrimary = false;
     let swappedToSecondaryAt = 0;
 
     function resetTracking() {
       lastKills = null;
+      lastArsenalState = null;
+      reloadGraceUntil = 0;
       primaryEmptyHandled = false;
+      pendingReturnToPrimary = false;
       swappedToSecondaryAt = 0;
     }
 
@@ -142,11 +148,21 @@
         return;
       }
 
+      const now = performance.now();
+
+      if (lastArsenalState === 'reload' && state.state !== 'reload') {
+        reloadGraceUntil = now + RELOAD_GRACE_MS;
+      }
+
+      lastArsenalState = state.state;
+
       const kills = Number(player.kills) || 0;
 
       if (!player.alive) {
         lastKills = kills;
+        reloadGraceUntil = 0;
         primaryEmptyHandled = false;
+        pendingReturnToPrimary = false;
         swappedToSecondaryAt = 0;
         return;
       }
@@ -158,6 +174,12 @@
       const scoredKill = kills > lastKills;
       lastKills = kills;
 
+      if (state.cur === 0) {
+        pendingReturnToPrimary = false;
+      } else if (returnOnKill && scoredKill && state.cur === 1) {
+        pendingReturnToPrimary = true;
+      }
+
       const primary = state.slots?.[0];
       const secondary = state.slots?.[1];
       const primaryAmmo = Number(primary?.ammo) || 0;
@@ -167,18 +189,23 @@
         primaryEmptyHandled = false;
       }
 
-      if (typeof state.swap !== 'function') {
+      if (
+        state.state === 'reload' ||
+        now < reloadGraceUntil ||
+        !SWAPPABLE_STATES.has(state.state) ||
+        typeof state.swap !== 'function'
+      ) {
         return;
       }
 
-      if (state.cur === 1 && primary && SECONDARY_SWAPPABLE_STATES.has(state.state)) {
-        if (returnOnKill && scoredKill) {
+      if (state.cur === 1 && primary) {
+        if (pendingReturnToPrimary) {
+          pendingReturnToPrimary = false;
           state.swap(0);
           return;
         }
 
         if (returnWhenIdle) {
-          const now = performance.now();
           const firing = isFiring(debug, state);
           const sinceFire = Number(state.sinceFire) || 0;
 
@@ -195,14 +222,12 @@
         autoSecondary &&
         !primaryEmptyHandled &&
         state.cur === 0 &&
-        state.state !== 'reload' &&
-        PRIMARY_SWAPPABLE_STATES.has(state.state) &&
         primary &&
         primaryAmmo <= 0 &&
         secondaryAmmo > 0
       ) {
         primaryEmptyHandled = true;
-        swappedToSecondaryAt = performance.now();
+        swappedToSecondaryAt = now;
         state.swap(1);
       }
     }
