@@ -292,7 +292,7 @@
       }
 
       const pose = resolveActorPose(actor);
-      const headDrop = pose.height < 1.1 ? 0.16 : pose.height < 1.4 ? 0.18 : 0.22;
+      const headDrop = pose.height < 1.1 ? 0.15 : 0.17;
       out.set(pose.x, pose.y + pose.height - headDrop, pose.z);
       return out;
     }
@@ -639,6 +639,7 @@
       bridge.requestAutoFire('aura', false);
     });
 
+    installSnapshotTracker();
     installSprintLock();
     setInterval(installSprintLock, 500);
   }
