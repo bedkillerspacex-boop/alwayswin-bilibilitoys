@@ -44,6 +44,12 @@
 
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
+    const focusSetting = module.settings.find((entry) => entry.n === 'Focus Attacker');
+
+    if (focusSetting) {
+      focusSetting.vis = mode === 'Switch';
+    }
+
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 20)) || 0));
     const lead = Math.max(0, Math.min(0.25, Number(setting(module, 'Lead', 0)) || 0));
     const config = {
@@ -54,6 +60,7 @@
       mode,
       range,
       lead,
+      focusAttacker: Boolean(setting(module, 'Focus Attacker', true)),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       ads: Boolean(setting(module, 'ADS', false)),
       legacyAura: Boolean(setting(module, 'LegacyAura', false))
@@ -88,6 +95,12 @@
         d: 'Switch cycles between targets; Single stays on one target until it is lost.',
         v: 0,
         vals: ['Switch', 'Single']
+      },
+      {
+        t: 'b',
+        n: 'Focus Attacker',
+        d: 'In Switch mode, prioritizes enemies who recently damaged you.',
+        v: 1
       },
       {
         t: 'n',
@@ -156,6 +169,7 @@
       mode: 'Switch',
       range: 20,
       lead: 0,
+      focusAttacker: true,
       wallCheck: true,
       ads: false,
       legacyAura: false
@@ -164,6 +178,8 @@
     let singleTarget = null;
     let syntheticAds = false;
     let enginePatched = false;
+    let lastAttackerId = null;
+    let lastAttackerAt = 0;
     const lastAttacks = new WeakMap();
     const latestSnapshotPlayers = new Map();
 
@@ -212,6 +228,21 @@
 
           Object.defineProperty(wrappedSnapshot, '__solsticeAuraSnapshotPatched', { value: true });
           proto.snapshot = wrappedSnapshot;
+
+          if (typeof proto.applyEvent === 'function' && !proto.applyEvent.__solsticeAuraEventPatched) {
+            const originalApplyEvent = proto.applyEvent;
+            const wrappedApplyEvent = function wrappedAuraApplyEvent(e, ...rest) {
+              if (e && e.type === 'damage' && e.id === this.net?.id && e.attacker != null && e.attacker !== this.net?.id) {
+                lastAttackerId = e.attacker;
+                lastAttackerAt = performance.now();
+              }
+
+              return originalApplyEvent.call(this, e, ...rest);
+            };
+
+            Object.defineProperty(wrappedApplyEvent, '__solsticeAuraEventPatched', { value: true });
+            proto.applyEvent = wrappedApplyEvent;
+          }
         })
         .catch(() => {
           enginePatched = false;
@@ -405,7 +436,21 @@
           }
         }
       } else {
+        const attackerFresh =
+          config.focusAttacker &&
+          lastAttackerId != null &&
+          performance.now() - lastAttackerAt < 3000;
+
         candidates.sort((left, right) => {
+          if (attackerFresh) {
+            const leftAttacker = left.actor?.id === lastAttackerId;
+            const rightAttacker = right.actor?.id === lastAttackerId;
+
+            if (leftAttacker !== rightAttacker) {
+              return leftAttacker ? -1 : 1;
+            }
+          }
+
           const leftTime = lastAttacks.get(left.actor) || 0;
           const rightTime = lastAttacks.get(right.actor) || 0;
 
@@ -628,6 +673,7 @@
         mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
         lead: Number.isFinite(lead) ? bridge.clamp(lead, 0, 0.25) : 0,
+        focusAttacker: data.focusAttacker !== false,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads),
         legacyAura: Boolean(data.legacyAura)
@@ -692,6 +738,8 @@
 
     bridge.onReset(() => {
       latestSnapshotPlayers.clear();
+      lastAttackerId = null;
+      lastAttackerAt = 0;
       releaseAds();
       bridge.requestAutoFire('aura', false);
     });
