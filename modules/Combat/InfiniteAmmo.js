@@ -1,11 +1,9 @@
 (() => {
   'use strict';
 
-  /* InfiniteAmmo：这个游戏的枪是本地模拟的（开火、后坐力、命中都在客户端），
-     所以直接把弹匣数字顶住就行，不需要跟服务器打交道。
-
-     弹匣落在 arsenal.slot.ammo（Aura 的 canFireNow 就是这么读的），
-     容量字段名不确定，所以按候选表探测，探测不到就用「见过的最大值」。 */
+  /* InfiniteAmmo：改写为「换弹时允许开火」+「弹匣不满时自动换弹」：
+     - 换弹时：保留 arsenal.update() 推进换弹动画与 _load()，若满足开火条件则在更新后直接调用 arsenal._fire()
+     - 自动换弹：当处于 ready 状态且 slot.ammo < slot.def.mag、备弹 > 0 时调用 arsenal.startReload() */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -47,10 +45,8 @@
       type: 'config',
       module: 'infiniteammo',
       enabled: Boolean(module.on),
-      magazine: boolOf(module, 'Infinite Mag', true),
-      reload: boolOf(module, 'No Reload', true),
-      reserve: boolOf(module, 'Infinite Reserve', true),
-      debug: boolOf(module, 'Debug Dump', false)
+      fireWhileReload: boolOf(module, 'Fire While Reload', true),
+      autoReload: boolOf(module, 'Auto Reload', true)
     };
     const key = JSON.stringify(config);
 
@@ -71,15 +67,13 @@
 
   register({
     name: 'InfiniteAmmo',
-    desc: 'Keeps the magazine full and skips reloading (ammo is client side).',
+    desc: 'Allows firing while reloading and auto-reloads when the magazine is not full.',
     cat: 'Combat',
     nm: { l: 'infiniteammo', ls: 'infinite ammo', n: 'InfiniteAmmo', ns: 'Infinite Ammo' },
     disp: '',
     settings: [
-      { t: 'b', n: 'Infinite Mag', d: 'Refills the magazine instantly.', v: 1 },
-      { t: 'b', n: 'No Reload', d: 'Cancels any reload in progress.', v: 1 },
-      { t: 'b', n: 'Infinite Reserve', d: 'Keeps the reserve ammo topped up.', v: 1 },
-      { t: 'b', n: 'Debug Dump', d: 'Logs the discovered ammo fields once.', v: 0 }
+      { t: 'b', n: 'Fire While Reload', d: 'Allows firing weapons during reload.', v: 1 },
+      { t: 'b', n: 'Auto Reload', d: 'Automatically reloads whenever the magazine is not full.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -106,118 +100,66 @@
   }
 
   function installGame(bridge) {
-    const CAPACITY_KEYS = ['capacity', 'max', 'maxAmmo', 'magSize', 'clipSize', 'size', 'mag', 'magazineSize'];
-    const RESERVE_KEYS = ['reserve', 'reserveAmmo', 'ammoReserve', 'spare', 'spareAmmo', 'backup'];
-
     let enabled = false;
-    let magazine = true;
-    let noReload = true;
-    let reserve = true;
-    let debug = false;
+    let fireWhileReload = true;
+    let autoReload = true;
 
-    let capacity = 0;
-    let reserveTarget = 0;
-    let dumped = false;
-
-    function arsenal() {
-      return bridge.getGH()?.debug?.arsenal;
-    }
-
-    function slotOf(state) {
-      return state?.slot || null;
-    }
-
-    function readCapacity(slot) {
-      for (const key of CAPACITY_KEYS) {
-        const value = Number(slot[key]);
-
-        if (Number.isFinite(value) && value > 0 && value < 5000) {
-          return { key, value };
-        }
+    function isFireHeld(input) {
+      if (!input) {
+        return false;
       }
 
-      return null;
+      if (typeof input.any === 'function') {
+        return Boolean(input.any(['Mouse0']));
+      }
+
+      return Boolean(input.keys?.has('Mouse0'));
     }
 
-    function dumpOnce(state, slot) {
-      if (dumped || !debug) {
+    function applyCombatRules() {
+      const debug = bridge.getGH()?.debug;
+      const state = debug?.arsenal;
+      const player = debug?.player;
+      const slot = state?.slot;
+      const def = slot?.def;
+
+      if (!state || !slot || !def || !player?.alive || player.mode === 'mantle') {
         return;
       }
 
-      dumped = true;
+      const fireHeld = isFireHeld(debug.input);
 
-      try {
-        console.log('[Solstice] arsenal keys', Object.keys(state || {}));
-        console.log('[Solstice] slot keys', Object.keys(slot || {}));
-        console.log('[Solstice] arsenal sample', state);
-        console.log('[Solstice] slot sample', slot);
-      } catch {
+      if (
+        fireWhileReload &&
+        state.state === 'reload' &&
+        slot.ammo > 0 &&
+        Number(state.cool) <= 0 &&
+        Number(state.sprintLock) <= 0 &&
+        Number(state.pumpWait) <= 0 &&
+        typeof state._fire === 'function'
+      ) {
+        const wantsFire = def.auto ? fireHeld : Number(state.semiBuf) > 0;
 
-      }
-    }
+        if (wantsFire) {
+          const ads = Number(state.ads) || 0;
+          const adsSmooth = ads * ads * (3 - 2 * ads);
 
-    function applyAmmo() {
-      const state = arsenal();
-
-      if (!state) {
-        return;
-      }
-
-      const slot = slotOf(state);
-
-      if (!slot) {
-        return;
-      }
-
-      const capInfo = readCapacity(slot);
-
-      if (capInfo && capInfo.value > capacity) {
-        capacity = capInfo.value;
-      }
-
-      const seen = Number(slot.ammo) || 0;
-
-      if (seen > capacity) {
-        capacity = seen;
-      }
-
-      dumpOnce(state, slot);
-
-      if (magazine && capacity > 0) {
-        const ammo = Number(slot.ammo) || 0;
-
-        if (ammo < capacity) {
-          slot.ammo = capacity;
+          state.semiBuf = 0;
+          state.wantStopReload = false;
+          state._fire(slot, def, adsSmooth);
         }
       }
 
-      if (reserve) {
-        for (const key of RESERVE_KEYS) {
-          const value = Number(slot[key]);
-
-          if (Number.isFinite(value)) {
-            if (value > reserveTarget) {
-              reserveTarget = value;
-            }
-
-            if (reserveTarget > 0) {
-              slot[key] = reserveTarget;
-            }
-          }
-        }
-      }
-
-      if (noReload) {
-        if (state.state === 'reloading') {
-          state.state = 'ready';
-        }
-
-        if (Number(state.cool) > 0 && Number(slot.ammo) >= capacity) {
-          state.cool = 0;
-        }
-
-        if (Number(state.pumpWait) > 0) {
-          state.pumpWait = 0;
+      if (
+        autoReload &&
+        state.state === 'ready' &&
+        Number(state.pumpWait) <= 0 &&
+        slot.ammo < def.mag &&
+        slot.reserve > 0 &&
+        typeof state.startReload === 'function'
+      ) {
+        if (fireWhileReload || (!fireHeld && Number(state.semiBuf) <= 0)) {
+          state.startReload();
         }
       }
     }
@@ -228,31 +170,14 @@
       }
 
       enabled = Boolean(data.enabled);
-      magazine = data.magazine !== false;
-      noReload = data.reload !== false;
-      reserve = data.reserve !== false;
-      debug = Boolean(data.debug);
-
-      if (!enabled) {
-        dumped = false;
-      }
+      fireWhileReload = data.fireWhileReload !== false;
+      autoReload = data.autoReload !== false;
     });
-
-    /* 开火前后各顶一次，避免这一帧里数字掉下去 */
-    bridge.onBeforeArsenalUpdate(() => {
-      if (enabled) {
-        applyAmmo();
-      }
-    }, 45);
 
     bridge.onAfterArsenalUpdate(() => {
       if (enabled) {
-        applyAmmo();
+        applyCombatRules();
       }
     }, 45);
-
-    bridge.onReset(() => {
-      dumped = false;
-    });
   }
 })();
