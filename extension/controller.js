@@ -67,6 +67,14 @@
     }
   }
 
+  function exposeSevenDays() {
+    const root = document.documentElement;
+
+    if (root && !root.hasAttribute('data-solstice-seven')) {
+      root.setAttribute('data-solstice-seven', chrome.runtime.getURL('assets/img/seven_days.png'));
+    }
+  }
+
   function emitUiEvent(type) {
     document.dispatchEvent(new CustomEvent(type));
   }
@@ -267,5 +275,7 @@
   setupUiStateBroadcast();
   scheduleFontInjection();
   exposeAudioBase();
+  exposeSevenDays();
   document.addEventListener('DOMContentLoaded', exposeAudioBase, { once: true });
+  document.addEventListener('DOMContentLoaded', exposeSevenDays, { once: true });
 })();

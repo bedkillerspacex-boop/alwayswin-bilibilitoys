@@ -17,32 +17,61 @@ canvas.addEventListener('wheel',e=>{
   S.wheel=d>0?1:(d<0?-1:0);
 },{passive:false});
 
-window.addEventListener('keydown',e=>{
-  if(document.getElementById('solstice-root')&&!document.documentElement.hasAttribute('data-solstice-open')) return;
-  if(e.key==='Insert'){
-    e.preventDefault();
-    if(!S.binding){ S.open=!S.open; S.wheel=0; killHint(); }
-    return;
-  }
-  if(e.key==='Escape'){
-    e.preventDefault();
-    if(S.binding){ S.binding.key=0; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; return; }
-    if(S.bindBool){ S.bindBool.key=0; S.bindBool=null; return; }
-    if(S.picker){ S.picker=null; return; }
-    if(S.open){ S.open=false; return; }
-  }
-  if(!S.binding&&!S.bindBool) return;
+const MODIFIER_CODES=new Set(['ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','MetaLeft','MetaRight']);
+let pendingModifierBind=null;
+
+function applyKeyBind(bind){
+  if(!bind) return;
   const keys=window.SolsticeKeys;
-  const bind=keys?keys.bindFromEvent(e):(e.code||e.key);
   if(keys&&keys.hasReservedModifier(bind)){
     console.warn('[Solstice] Ctrl / Alt / Win combos are browser hotkeys - bind a plain key, Shift combo or Mouse4 / Mouse5.');
     return;
   }
-  e.preventDefault();
-  e.stopImmediatePropagation();
   if(S.binding){ S.binding.key=bind; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; }
   else if(S.bindBool){ S.bindBool.key=bind; S.bindBool=null; }
-});
+}
+
+window.addEventListener('keydown',e=>{
+  if(document.getElementById('solstice-root')&&!document.documentElement.hasAttribute('data-solstice-open')) return;
+  if(e.key==='Insert'){
+    e.preventDefault();
+    if(!S.binding&&!S.bindBool){ S.open=!S.open; S.wheel=0; killHint(); }
+    return;
+  }
+  if(e.key==='Escape'||((S.binding||S.bindBool)&&(e.key==='Backspace'||e.key==='Delete'))){
+    if(S.binding){ e.preventDefault(); e.stopImmediatePropagation(); S.binding.key=0; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; pendingModifierBind=null; return; }
+    if(S.bindBool){ e.preventDefault(); e.stopImmediatePropagation(); S.bindBool.key=0; S.bindBool=null; pendingModifierBind=null; return; }
+    if(e.key==='Escape'){
+      e.preventDefault();
+      if(S.picker){ S.picker=null; return; }
+      if(S.open){ S.open=false; return; }
+    }
+  }
+  if(!S.binding&&!S.bindBool) return;
+  if(e.repeat) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const code=e.code||e.key;
+  if(MODIFIER_CODES.has(code)){
+    pendingModifierBind=(code==='ShiftLeft'||code==='ShiftRight')?code:null;
+    return;
+  }
+  pendingModifierBind=null;
+  const keys=window.SolsticeKeys;
+  const bind=keys?keys.bindFromEvent(e):code;
+  applyKeyBind(bind);
+},true);
+
+window.addEventListener('keyup',e=>{
+  if(!S.binding&&!S.bindBool) return;
+  if(pendingModifierBind&&(e.code===pendingModifierBind||e.key==='Shift')){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const bind=pendingModifierBind;
+    pendingModifierBind=null;
+    applyKeyBind(bind);
+  }
+},true);
 
 window.addEventListener('mousedown',e=>{
   if(!S.binding&&!S.bindBool) return;
@@ -51,8 +80,8 @@ window.addEventListener('mousedown',e=>{
   if(!bind) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  if(S.binding){ S.binding.key=bind; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; }
-  else if(S.bindBool){ S.bindBool.key=bind; S.bindBool=null; }
+  pendingModifierBind=null;
+  applyKeyBind(bind);
 },true);
 window.addEventListener('blur',()=>{ S.down=[false,false,false]; S.dragSetting=null; });
 
