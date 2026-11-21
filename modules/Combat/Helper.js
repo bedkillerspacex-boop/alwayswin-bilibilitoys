@@ -43,6 +43,7 @@
 
     const now = performance.now();
     const reloadWait = Math.max(0, Math.min(0.3, Number(setting(module, 'Reload Wait', 0.3)) || 0));
+    const reloadPercent = Math.max(30, Math.min(70, Number(setting(module, 'Reload Percent', 50)) || 50));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -53,6 +54,8 @@
       returnWhenIdle: Boolean(setting(module, 'Return When Idle', true)),
       swapOnHit: Boolean(setting(module, 'Swap On Hit', true)),
       reloadWait,
+      autoReload: Boolean(setting(module, 'Auto Reload', true)),
+      reloadPercent,
       fireWhileSwap: Boolean(setting(module, 'Fire While Swap', false))
     };
     const key = JSON.stringify(config);
@@ -84,6 +87,8 @@
       { t: 'b', n: 'Return When Idle', d: 'Swaps back to primary when idle and no enemies remain.', v: 1 },
       { t: 'b', n: 'Swap On Hit', d: 'Allows interrupting reload to swap when taking damage.', v: 1 },
       { t: 'n', n: 'Reload Wait', d: 'Wait time (seconds) after reload finishes before swapping.', v: 0.3, min: 0, max: 0.3, step: 0.01 },
+      { t: 'b', n: 'Auto Reload', d: 'Reloads primary below Reload Percent when safe; interrupts immediately on fire/enemy.', v: 1 },
+      { t: 'n', n: 'Reload Percent', d: 'Auto-reload threshold (% of magazine, 30-70).', v: 50, min: 30, max: 70, step: 5 },
       { t: 'b', n: 'Fire While Swap', d: 'Allows firing during holster/draw swap animations.', v: 0 }
     ],
     onRender: syncConfig,
@@ -124,6 +129,8 @@
     let returnWhenIdle = true;
     let swapOnHit = true;
     let reloadWaitMs = 300;
+    let autoReload = true;
+    let reloadPercent = 50;
     let fireWhileSwap = false;
 
     let lastKills = null;
@@ -135,6 +142,8 @@
     let primaryEmptyHandled = false;
     let pendingReturnToPrimary = false;
     let swappedToSecondaryAt = 0;
+    let autoReloadSlot = null;
+    let preReloadAmmo = 0;
 
     function resetTracking() {
       lastKills = null;
@@ -146,6 +155,8 @@
       primaryEmptyHandled = false;
       pendingReturnToPrimary = false;
       swappedToSecondaryAt = 0;
+      autoReloadSlot = null;
+      preReloadAmmo = 0;
     }
 
     function isFireHeld(debug) {
@@ -296,6 +307,50 @@
         primaryEmptyHandled = false;
       }
 
+      if (state.state !== 'reload') {
+        autoReloadSlot = null;
+        preReloadAmmo = 0;
+      } else if (
+        autoReload &&
+        autoReloadSlot === state.slot &&
+        state.slot &&
+        Number(state.slot.ammo) > 0 &&
+        (isFiring(debug, state) || hasActiveEnemy(debug, player))
+      ) {
+        if (Number(state.slot.ammo) < preReloadAmmo) {
+          state.slot.ammo = preReloadAmmo;
+        }
+
+        state.state = 'ready';
+        state.clip = null;
+        state.cool = 0;
+        debug.ctx?.vm?.release?.();
+        autoReloadSlot = null;
+        preReloadAmmo = 0;
+        reloadGraceUntil = 0;
+      }
+
+      if (
+        autoReload &&
+        state.cur === 0 &&
+        state.state === 'ready' &&
+        Number(state.pumpWait) <= 0 &&
+        primary &&
+        primary.def?.mag > 0 &&
+        primaryAmmo > 0 &&
+        (primaryAmmo / primary.def.mag) * 100 <= reloadPercent &&
+        Number(primary.reserve) > 0 &&
+        !isFiring(debug, state) &&
+        !hasActiveEnemy(debug, player) &&
+        Number(state.sinceFire) >= 0.25 &&
+        typeof state.startReload === 'function'
+      ) {
+        autoReloadSlot = primary;
+        preReloadAmmo = primaryAmmo;
+        state.startReload();
+        return;
+      }
+
       if (state.state === 'holster' || now < swapCooldownUntil || typeof state.swap !== 'function') {
         return;
       }
@@ -374,6 +429,9 @@
       swapOnHit = data.swapOnHit !== false;
       const waitSec = Number(data.reloadWait);
       reloadWaitMs = Number.isFinite(waitSec) ? Math.max(0, Math.min(300, Math.round(waitSec * 1000))) : 300;
+      autoReload = data.autoReload !== false;
+      const pct = Number(data.reloadPercent);
+      reloadPercent = Number.isFinite(pct) ? Math.max(30, Math.min(70, pct)) : 50;
       fireWhileSwap = Boolean(data.fireWhileSwap);
     });
 
