@@ -1,9 +1,10 @@
 (() => {
   'use strict';
 
-  /* InfiniteAmmo：改写为「换弹时允许开火」+「弹匣不满时自动换弹」：
-     - 换弹时：保留 arsenal.update() 推进换弹动画与 _load()，若满足开火条件则在更新后直接调用 arsenal._fire()
-     - 自动换弹：当处于 ready 状态且 slot.ammo < slot.def.mag、备弹 > 0 时调用 arsenal.startReload() */
+  /* InfiniteAmmo：
+     - 单机训练模式（非 PvP）：直接锁定 slot.ammo = def.mag、slot.reserve = def.reserve 并取消换弹/泵动硬直，实现真无限子弹。
+     - 联机 PvP 模式（engine.js 接管了 startReload）：服务端权威校验 me.ammo 与 me.reload > 0，
+       强改本地弹匣会导致空包弹/无伤害，因此自动切换为「停火后自动换弹」（不打断连射，停火即补满）。 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -13,6 +14,7 @@
   const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const HEARTBEAT_MS = 400;
+  const AUTO_RELOAD_IDLE_SEC = 0.3;
 
   let lastSentKey = '';
   let lastSentAt = 0;
@@ -45,7 +47,8 @@
       type: 'config',
       module: 'infiniteammo',
       enabled: Boolean(module.on),
-      fireWhileReload: boolOf(module, 'Fire While Reload', true),
+      infiniteMag: boolOf(module, 'Infinite Mag', true),
+      noReload: boolOf(module, 'No Reload', true),
       autoReload: boolOf(module, 'Auto Reload', true)
     };
     const key = JSON.stringify(config);
@@ -67,13 +70,14 @@
 
   register({
     name: 'InfiniteAmmo',
-    desc: 'Allows firing while reloading and auto-reloads when the magazine is not full.',
+    desc: 'True infinite ammo offline; smart auto-reload after firing in PvP.',
     cat: 'Combat',
     nm: { l: 'infiniteammo', ls: 'infinite ammo', n: 'InfiniteAmmo', ns: 'Infinite Ammo' },
     disp: '',
     settings: [
-      { t: 'b', n: 'Fire While Reload', d: 'Allows firing weapons during reload.', v: 1 },
-      { t: 'b', n: 'Auto Reload', d: 'Automatically reloads whenever the magazine is not full.', v: 1 }
+      { t: 'b', n: 'Infinite Mag', d: 'Keeps magazine and reserve full (offline/training only).', v: 1 },
+      { t: 'b', n: 'No Reload', d: 'Skips reload and pump wait (offline/training only).', v: 1 },
+      { t: 'b', n: 'Auto Reload', d: 'Auto-reloads when ammo is not full after you stop firing.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -101,7 +105,8 @@
 
   function installGame(bridge) {
     let enabled = false;
-    let fireWhileReload = true;
+    let infiniteMag = true;
+    let noReload = true;
     let autoReload = true;
 
     function isFireHeld(input) {
@@ -116,51 +121,74 @@
       return Boolean(input.keys?.has('Mouse0'));
     }
 
-    function applyCombatRules() {
+    function isOnlinePvP(state) {
+      const proto = Object.getPrototypeOf(state);
+      return Boolean(proto && typeof proto.startReload === 'function' && state.startReload !== proto.startReload);
+    }
+
+    function applyOfflineInfinite(state, slot, def) {
+      const mag = Number(def.mag) || 0;
+      const reserve = Number(def.reserve) || 0;
+
+      if (infiniteMag) {
+        if (mag > 0 && slot.ammo < mag) {
+          slot.ammo = mag;
+        }
+
+        if (reserve > 0 && slot.reserve < reserve) {
+          slot.reserve = reserve;
+        }
+      }
+
+      if (noReload) {
+        if (state.state === 'reload') {
+          state.state = 'ready';
+          state.clip = null;
+        }
+
+        if (Number(state.pumpWait) > 0) {
+          state.pumpWait = 0;
+        }
+      }
+    }
+
+    function applyAutoReload(state, slot, def, input) {
+      if (
+        !autoReload ||
+        state.state !== 'ready' ||
+        Number(state.pumpWait) > 0 ||
+        slot.ammo >= def.mag ||
+        slot.reserve <= 0 ||
+        typeof state.startReload !== 'function'
+      ) {
+        return;
+      }
+
+      const fireHeld = isFireHeld(input);
+
+      if (!fireHeld && Number(state.semiBuf) <= 0 && Number(state.sinceFire) >= AUTO_RELOAD_IDLE_SEC) {
+        state.startReload();
+      }
+    }
+
+    function applyAmmo(isAfter) {
       const debug = bridge.getGH()?.debug;
       const state = debug?.arsenal;
       const player = debug?.player;
       const slot = state?.slot;
       const def = slot?.def;
 
-      if (!state || !slot || !def || !player?.alive || player.mode === 'mantle') {
+      if (!state || !slot || !def) {
         return;
       }
 
-      const fireHeld = isFireHeld(debug.input);
-
-      if (
-        fireWhileReload &&
-        state.state === 'reload' &&
-        slot.ammo > 0 &&
-        Number(state.cool) <= 0 &&
-        Number(state.sprintLock) <= 0 &&
-        Number(state.pumpWait) <= 0 &&
-        typeof state._fire === 'function'
-      ) {
-        const wantsFire = def.auto ? fireHeld : Number(state.semiBuf) > 0;
-
-        if (wantsFire) {
-          const ads = Number(state.ads) || 0;
-          const adsSmooth = ads * ads * (3 - 2 * ads);
-
-          state.semiBuf = 0;
-          state.wantStopReload = false;
-          state._fire(slot, def, adsSmooth);
-        }
+      if (!isOnlinePvP(state)) {
+        applyOfflineInfinite(state, slot, def);
+        return;
       }
 
-      if (
-        autoReload &&
-        state.state === 'ready' &&
-        Number(state.pumpWait) <= 0 &&
-        slot.ammo < def.mag &&
-        slot.reserve > 0 &&
-        typeof state.startReload === 'function'
-      ) {
-        if (fireWhileReload || (!fireHeld && Number(state.semiBuf) <= 0)) {
-          state.startReload();
-        }
+      if (isAfter && player?.alive && player.mode !== 'mantle') {
+        applyAutoReload(state, slot, def, debug.input);
       }
     }
 
@@ -170,13 +198,20 @@
       }
 
       enabled = Boolean(data.enabled);
-      fireWhileReload = data.fireWhileReload !== false;
+      infiniteMag = data.infiniteMag !== false;
+      noReload = data.noReload !== false;
       autoReload = data.autoReload !== false;
     });
 
+    bridge.onBeforeArsenalUpdate(() => {
+      if (enabled) {
+        applyAmmo(false);
+      }
+    }, 45);
+
     bridge.onAfterArsenalUpdate(() => {
       if (enabled) {
-        applyCombatRules();
+        applyAmmo(true);
       }
     }, 45);
   }
