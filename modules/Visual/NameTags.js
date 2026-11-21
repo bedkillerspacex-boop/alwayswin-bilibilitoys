@@ -6,15 +6,15 @@
      - 敌人：红色（#ff4848）
      - IRC 用户：蓝色（#409cff），格式为 [ircname]name */
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
-    bootGame();
-    return;
-  }
-
   const CHANNEL = 'solstice-nametags';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
+
+  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+    bootGame();
+    return;
+  }
 
   let lastSentKey = '';
   let lastSentAt = 0;
