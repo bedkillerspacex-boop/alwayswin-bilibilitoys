@@ -7,7 +7,7 @@
 
 1. 打开 `edge://extensions`（或 `chrome://extensions`），开启「开发人员模式」
 2. 「加载解压缩的扩展程序」→ 选择本仓库根目录
-3. 打开游戏页，按 `Insert` 开关菜单
+3. 打开游戏页，按 `Insert` 开关clickgui
 
 ## 功能
 
