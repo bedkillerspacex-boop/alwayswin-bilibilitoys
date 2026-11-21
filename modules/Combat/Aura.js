@@ -639,10 +639,24 @@
         }
 
         const airCompensateY = airborne ? -(Number(player.vel?.y) || 0) * 0.016 : 0;
+        let originY = player.pos.y + localEyeHeight + airCompensateY;
+
+        if (airborne && typeof bridge.getRawSelf === 'function') {
+          const rawSelf = bridge.getRawSelf();
+
+          if (rawSelf && rawSelf.alive !== false) {
+            const estServerY = rawSelf.y + (Number(rawSelf.vy) || 0) * 0.03;
+
+            if (Math.abs(estServerY - player.pos.y) > 0.12) {
+              const serverEyeH = rawSelf.sliding ? 0.72 : rawSelf.crouch ? 1.0 : 1.62;
+              originY = estServerY + serverEyeH;
+            }
+          }
+        }
 
         origin = {
           x: player.pos.x,
-          y: player.pos.y + localEyeHeight + airCompensateY,
+          y: originY,
           z: player.pos.z
         };
       }

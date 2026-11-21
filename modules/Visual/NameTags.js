@@ -53,7 +53,7 @@
       enabled: Boolean(module.on),
       local: Boolean(setting(module, 'Show Self', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
-      enemies: Boolean(setting(module, 'Show Enemies', false)),
+      enemies: Boolean(setting(module, 'Show Enemies', true)),
       health: Boolean(setting(module, 'Show Health', true)),
       distance: Boolean(setting(module, 'Show Distance', true)),
       scale: Math.max(0.6, Math.min(2, Number(setting(module, 'Scale', 1)) || 1))
@@ -84,7 +84,7 @@
     settings: [
       { t: 'b', n: 'Show Self', d: 'Render a name tag above your own player.', v: 0 },
       { t: 'b', n: 'Show Friends', d: 'Render name tags above teammates.', v: 1 },
-      { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 0 },
+      { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 1 },
       { t: 'b', n: 'Show Health', d: 'Show health bar under the name tag.', v: 1 },
       { t: 'b', n: 'Show Distance', d: 'Show distance in meters next to the name.', v: 1 },
       { t: 'n', n: 'Scale', d: 'Text scale multiplier.', v: 1.0, min: 0.6, max: 2.0, step: 0.05 }
@@ -122,7 +122,7 @@
       enabled: false,
       local: false,
       friends: true,
-      enemies: false,
+      enemies: true,
       health: true,
       distance: true,
       scale: 1
@@ -364,7 +364,7 @@
         enabled: Boolean(data.enabled),
         local: Boolean(data.local),
         friends: data.friends !== false,
-        enemies: Boolean(data.enemies),
+        enemies: data.enemies !== false,
         health: data.health !== false,
         distance: data.distance !== false,
         scale: Math.max(0.6, Math.min(2, Number(data.scale) || 1))

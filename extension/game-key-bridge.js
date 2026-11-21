@@ -27,6 +27,7 @@
   let latestOnlineJumpHeld = false;
   let latestRawSnapshot = null;
   let latestRawSnapshotAt = 0;
+  let latestSelfId = null;
   let engineSnapshotHooked = false;
 
   function installEngineSnapshotHook() {
@@ -50,6 +51,9 @@
           if (s && Array.isArray(s.players)) {
             latestRawSnapshot = s;
             latestRawSnapshotAt = performance.now();
+            if (this.net?.id != null) {
+              latestSelfId = this.net.id;
+            }
           }
 
           return originalSnapshot.call(this, s, ...rest);
@@ -79,6 +83,16 @@
     }
 
     return snap.players.find((p) => p && p.id === actor.id) || null;
+  }
+
+  function getRawSelf() {
+    const snap = getRawSnapshot();
+
+    if (!snap || latestSelfId == null) {
+      return null;
+    }
+
+    return snap.players.find((p) => p && p.id === latestSelfId) || null;
   }
   let lastInputState = '';
   let guardSwallow = true;
@@ -716,6 +730,7 @@
     headPoint,
     getRawSnapshot,
     getRawPlayer,
+    getRawSelf,
     worldLineClear,
     worldRayDistance,
     rayAabb,
