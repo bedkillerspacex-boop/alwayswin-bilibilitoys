@@ -48,7 +48,8 @@
       distance: valueOf(module, 'Distance', 3.2),
       height: valueOf(module, 'Height', 0.35),
       body: Boolean((module.settings.find((s) => s.n === 'Show Body') || { v: 1 }).v),
-      showDerp: Boolean((module.settings.find((s) => s.n === 'Show Derp') || { v: 1 }).v)
+      showDerp: Boolean((module.settings.find((s) => s.n === 'Show Derp') || { v: 1 }).v),
+      wallCheck: Boolean((module.settings.find((s) => s.n === 'Wall Check') || { v: 1 }).v)
     };
     const key = JSON.stringify(config);
 
@@ -77,7 +78,8 @@
       { t: 'n', n: 'Distance', d: 'How far the camera sits behind you.', v: 3.2, min: 0.5, max: 10.0, step: 0.1 },
       { t: 'n', n: 'Height', d: 'Vertical offset of the camera.', v: 0.35, min: -1.0, max: 2.5, step: 0.05 },
       { t: 'b', n: 'Show Body', d: 'Forces your own model to stay visible.', v: 1 },
-      { t: 'b', n: 'Show Derp', d: 'Displays your AntiAim Derp pose on your 3rd-person body.', v: 1 }
+      { t: 'b', n: 'Show Derp', d: 'Displays your AntiAim Derp pose on your 3rd-person body.', v: 1 },
+      { t: 'b', n: 'Wall Check', d: 'Prevents the third-person camera from clipping into walls.', v: 1 }
     ],
     renderOrder: 3,
     onRender: syncConfig,
@@ -111,6 +113,7 @@
     let height = 0.35;
     let wantBody = true;
     let showDerp = true;
+    let wallCheck = true;
     let hooked = false;
     let rafId = 0;
 
@@ -173,9 +176,31 @@
       const baseY = pos.y - applied.y;
       const baseZ = pos.z - applied.z;
 
-      const nextX = baseX - forward.x * distance;
-      const nextY = baseY - forward.y * distance + height;
-      const nextZ = baseZ - forward.z * distance;
+      let nextX = baseX - forward.x * distance;
+      let nextY = baseY - forward.y * distance + height;
+      let nextZ = baseZ - forward.z * distance;
+
+      if (wallCheck && typeof bridge.worldRayDistance === 'function') {
+        const dx = nextX - baseX;
+        const dy = nextY - baseY;
+        const dz = nextZ - baseZ;
+        const len = Math.hypot(dx, dy, dz);
+
+        if (len > 1e-4) {
+          const hitDist = bridge.worldRayDistance(
+            { x: baseX, y: baseY, z: baseZ },
+            { x: nextX, y: nextY, z: nextZ }
+          );
+
+          if (hitDist !== null && hitDist < len) {
+            const safeDist = Math.max(0.15, hitDist - 0.15);
+            const ratio = safeDist / len;
+            nextX = baseX + dx * ratio;
+            nextY = baseY + dy * ratio;
+            nextZ = baseZ + dz * ratio;
+          }
+        }
+      }
 
       pos.x = nextX;
       pos.y = nextY;
@@ -363,6 +388,7 @@
       height = Number.isFinite(Number(data.height)) ? Number(data.height) : 0.35;
       wantBody = data.body !== false;
       showDerp = data.showDerp !== false;
+      wallCheck = data.wallCheck !== false;
 
       if (enabled) {
         if (!hooked) {

@@ -231,6 +231,45 @@
     );
   }
 
+  function worldRayDistance(from, to) {
+    if (!from || !to) {
+      return null;
+    }
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dy, dz);
+
+    if (length < 1e-4) {
+      return null;
+    }
+
+    const dir = { x: dx / length, y: dy / length, z: dz / length };
+    const online = document.body.classList.contains('online-session') &&
+      latestOnlineWorld &&
+      typeof latestOnlineWorld.raycast === 'function' &&
+      performance.now() - latestOnlineWorldAt < 1000;
+
+    if (online) {
+      const hit = latestOnlineWorld.raycast(from, dir, length);
+      return hit && Number.isFinite(hit.distance) ? hit.distance : null;
+    }
+
+    const world = window.GH?.debug?.world;
+
+    if (typeof world?.raycast === 'function') {
+      const out = { t: length };
+      const hit = world.raycast(from.x, from.y, from.z, dir.x, dir.y, dir.z, length, out);
+
+      if (hit && Number.isFinite(out.t)) {
+        return out.t;
+      }
+    }
+
+    return null;
+  }
+
   function worldLineClear(from, to) {
     if (!from || !to) {
       return true;
@@ -611,6 +650,7 @@
     isEnemy,
     headPoint,
     worldLineClear,
+    worldRayDistance,
     rayAabb,
     nearestEnemy,
     clamp,
