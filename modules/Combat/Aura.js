@@ -1,5 +1,3 @@
-
-
 (() => {
   'use strict';
 
@@ -55,7 +53,8 @@
       mode,
       range,
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
-      ads: Boolean(setting(module, 'ADS', false))
+      ads: Boolean(setting(module, 'ADS', false)),
+      legacyAura: Boolean(setting(module, 'LegacyAura', false))
     };
     const key = JSON.stringify(config);
 
@@ -77,7 +76,7 @@
   register({
     name: 'Aura',
     desc: 'Automatically attacks nearby enemies.',
-    cat: "Combat",
+    cat: 'Combat',
     nm: { l: 'aura', ls: 'aura', n: 'Aura', ns: 'Aura' },
     disp: 'Mode',
     settings: [
@@ -107,6 +106,12 @@
         t: 'b',
         n: 'ADS',
         d: 'Silently request ADS on the server while attacking.',
+        v: 0
+      },
+      {
+        t: 'b',
+        n: 'LegacyAura',
+        d: 'Use the original Aura targeting and aim logic.',
         v: 0
       }
     ],
@@ -140,12 +145,63 @@
       mode: 'Switch',
       range: 20,
       wallCheck: true,
-      ads: false
+      ads: false,
+      legacyAura: false
     };
     let target = null;
     let singleTarget = null;
     let syntheticAds = false;
+    let enginePatched = false;
     const lastAttacks = new WeakMap();
+    const latestSnapshotPlayers = new Map();
+
+    function installSnapshotTracker() {
+      if (enginePatched) {
+        return;
+      }
+
+      enginePatched = true;
+      const engineUrl = new URL('client/engine.js', location.href).href;
+
+      import(engineUrl)
+        .then(({ Engine }) => {
+          const proto = Engine?.prototype;
+
+          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeAuraSnapshotPatched) {
+            return;
+          }
+
+          const originalSnapshot = proto.snapshot;
+          const wrappedSnapshot = function wrappedAuraSnapshot(s, ...rest) {
+            if (s && Array.isArray(s.players)) {
+              const now = performance.now();
+              latestSnapshotPlayers.clear();
+
+              for (const p of s.players) {
+                if (p && p.id != null) {
+                  latestSnapshotPlayers.set(p.id, {
+                    x: p.x,
+                    y: p.y,
+                    z: p.z,
+                    crouch: Boolean(p.crouch),
+                    sliding: Boolean(p.sliding),
+                    alive: p.alive !== false,
+                    at: now
+                  });
+                }
+              }
+            }
+
+            return originalSnapshot.call(this, s, ...rest);
+          };
+
+          Object.defineProperty(wrappedSnapshot, '__solsticeAuraSnapshotPatched', { value: true });
+          proto.snapshot = wrappedSnapshot;
+        })
+        .catch(() => {
+          enginePatched = false;
+        });
+    }
 
     function releaseAds() {
       if (!syntheticAds) {
@@ -200,10 +256,51 @@
       }
     }
 
+    function resolveActorPose(actor) {
+      if (!config.legacyAura && actor?.id != null) {
+        const snap = latestSnapshotPlayers.get(actor.id);
+
+        if (snap && snap.alive && performance.now() - snap.at < 1000) {
+          const height = snap.sliding ? 0.95 : snap.crouch ? 1.2 : 1.8;
+          return { x: snap.x, y: snap.y, z: snap.z, height };
+        }
+      }
+
+      const height = Number(actor?.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+      return { x: actor.pos.x, y: actor.pos.y, z: actor.pos.z, height };
+    }
+
+    function computeHeadPoint(actor, out) {
+      if (config.legacyAura) {
+        bridge.headPoint(actor, out);
+        return out;
+      }
+
+      const parts = actor.hit;
+
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          if (part?.part === 'head' && part.a && part.b) {
+            out.set(
+              (part.a.x + part.b.x) * 0.5,
+              (part.a.y + part.b.y) * 0.5,
+              (part.a.z + part.b.z) * 0.5
+            );
+            return out;
+          }
+        }
+      }
+
+      const pose = resolveActorPose(actor);
+      const headDrop = pose.height < 1.1 ? 0.16 : pose.height < 1.4 ? 0.18 : 0.22;
+      out.set(pose.x, pose.y + pose.height - headDrop, pose.z);
+      return out;
+    }
+
     function aimPoint(actor, eye, debug) {
       const range = Number(config.range) || 0;
       const point = debug.player.pos.clone();
-      bridge.headPoint(actor, point);
+      computeHeadPoint(actor, point);
 
       let dx = point.x - eye.x;
       let dy = point.y - eye.y;
@@ -217,8 +314,16 @@
         }
       }
 
-      const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
-      point.set(actor.pos.x, actor.pos.y + height * 0.55, actor.pos.z);
+      const pose = config.legacyAura
+        ? {
+            x: actor.pos.x,
+            y: actor.pos.y,
+            z: actor.pos.z,
+            height: Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8
+          }
+        : resolveActorPose(actor);
+
+      point.set(pose.x, pose.y + pose.height * 0.55, pose.z);
       dx = point.x - eye.x;
       dy = point.y - eye.y;
       dz = point.z - eye.z;
@@ -235,7 +340,7 @@
 
     function selectTarget(context) {
       const { player, camera, debug, actors } = context;
-      const eye = camera.position;
+      const eye = config.legacyAura ? camera.position : player.eye || camera.position;
       const range = Number(config.range) || 0;
       const head = player.pos.clone();
       const candidates = [];
@@ -245,7 +350,7 @@
           continue;
         }
 
-        bridge.headPoint(actor, head);
+        computeHeadPoint(actor, head);
 
         const distance = Math.hypot(head.x - eye.x, head.y - eye.y, head.z - eye.z);
 
@@ -345,14 +450,15 @@
         return null;
       }
 
-      const camera = bridge.getGH()?.debug?.gfx?.camera;
-      const origin = eye || camera?.position;
+      const debug = bridge.getGH()?.debug;
+      const camera = debug?.gfx?.camera;
+      const origin = eye || debug?.player?.eye || camera?.position;
 
-      if (!origin) {
+      if (!origin || !debug) {
         return null;
       }
 
-      const point = aimPoint(target, origin, bridge.getGH().debug);
+      const point = aimPoint(target, origin, debug);
 
       if (!point) {
         return null;
@@ -369,7 +475,7 @@
 
       const out = dir && typeof dir.clone === 'function'
         ? dir.clone()
-        : bridge.getGH().debug.player.pos.clone();
+        : debug.player.pos.clone();
 
       out.x = dx / length;
       out.y = dy / length;
@@ -466,12 +572,15 @@
         mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
         wallCheck: data.wallCheck !== false,
-        ads: Boolean(data.ads)
+        ads: Boolean(data.ads),
+        legacyAura: Boolean(data.legacyAura)
       };
 
       bridge.setRecoilSuppressed('aura', config.enabled);
 
-      if (!config.enabled) {
+      if (config.enabled) {
+        installSnapshotTracker();
+      } else {
         target = null;
         singleTarget = null;
         releaseAds();
@@ -525,6 +634,7 @@
     });
 
     bridge.onReset(() => {
+      latestSnapshotPlayers.clear();
       releaseAds();
       bridge.requestAutoFire('aura', false);
     });
