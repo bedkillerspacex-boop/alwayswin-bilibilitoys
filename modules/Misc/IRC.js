@@ -6,7 +6,7 @@
      - 游戏 iframe 内建立 WebSocket 连接，按 roomId / playerId 同步同房间的 IRC 用户与 Protect IRC 状态
      - 默认开启 Protect IRC（不打同开启保护的 IRC 玩家）；一旦关闭 Protect IRC，所有人都可以打你 */
 
-  const DEFAULT_IRC_ORIGIN = 'https://irc.example.com';
+  const DEFAULT_IRC_ORIGIN = 'https://cod.firebounce.today';
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
