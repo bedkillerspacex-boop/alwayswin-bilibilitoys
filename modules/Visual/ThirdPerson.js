@@ -47,7 +47,8 @@
       enabled: Boolean(module.on),
       distance: valueOf(module, 'Distance', 3.2),
       height: valueOf(module, 'Height', 0.35),
-      body: Boolean((module.settings.find((s) => s.n === 'Show Body') || { v: 1 }).v)
+      body: Boolean((module.settings.find((s) => s.n === 'Show Body') || { v: 1 }).v),
+      showDerp: Boolean((module.settings.find((s) => s.n === 'Show Derp') || { v: 1 }).v)
     };
     const key = JSON.stringify(config);
 
@@ -75,7 +76,8 @@
     settings: [
       { t: 'n', n: 'Distance', d: 'How far the camera sits behind you.', v: 3.2, min: 0.5, max: 10.0, step: 0.1 },
       { t: 'n', n: 'Height', d: 'Vertical offset of the camera.', v: 0.35, min: -1.0, max: 2.5, step: 0.05 },
-      { t: 'b', n: 'Show Body', d: 'Forces your own model to stay visible.', v: 1 }
+      { t: 'b', n: 'Show Body', d: 'Forces your own model to stay visible.', v: 1 },
+      { t: 'b', n: 'Show Derp', d: 'Displays your AntiAim Derp pose on your 3rd-person body.', v: 1 }
     ],
     renderOrder: 3,
     onRender: syncConfig,
@@ -108,6 +110,7 @@
     let distance = 3.2;
     let height = 0.35;
     let wantBody = true;
+    let showDerp = true;
     let hooked = false;
     let rafId = 0;
 
@@ -359,6 +362,7 @@
       distance = Number.isFinite(Number(data.distance)) ? Number(data.distance) : 3.2;
       height = Number.isFinite(Number(data.height)) ? Number(data.height) : 0.35;
       wantBody = data.body !== false;
+      showDerp = data.showDerp !== false;
 
       if (enabled) {
         if (!hooked) {
@@ -409,6 +413,8 @@
 
       if (typeof bridge.provide === 'function') {
         bridge.provide('thirdperson', {
+          isEnabled: () => enabled,
+          wantsDerpBody: () => enabled && showDerp,
           withCamera(camera, fn) {
             if (!enabled || !camera) {
               return fn();

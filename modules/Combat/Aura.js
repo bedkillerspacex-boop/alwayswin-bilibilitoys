@@ -291,7 +291,7 @@
       return { x: actor.pos.x, y: actor.pos.y, z: actor.pos.z, height };
     }
 
-    function computeHeadPoint(actor, out) {
+    function computeHeadPoint(actor, out, eye) {
       if (config.legacyAura) {
         bridge.headPoint(actor, out);
         return out;
@@ -313,7 +313,14 @@
       }
 
       const pose = resolveActorPose(actor);
-      const aimY = pose.height < 1.1 ? 0.65 : pose.height < 1.4 ? 1.0 : 1.62;
+      let aimY = pose.height < 1.1 ? 0.65 : pose.height < 1.4 ? 1.0 : 1.62;
+
+      if (eye) {
+        const dist = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
+        const drop = Math.min(0.08, dist * 0.0015);
+        aimY = Math.max(pose.height * 0.55, aimY - drop);
+      }
+
       out.set(pose.x, pose.y + aimY, pose.z);
       return out;
     }
@@ -321,7 +328,7 @@
     function aimPoint(actor, eye, debug) {
       const range = Number(config.range) || 0;
       const point = debug.player.pos.clone();
-      computeHeadPoint(actor, point);
+      computeHeadPoint(actor, point, eye);
 
       let dx = point.x - eye.x;
       let dy = point.y - eye.y;
@@ -371,7 +378,7 @@
           continue;
         }
 
-        computeHeadPoint(actor, head);
+        computeHeadPoint(actor, head, eye);
 
         const distance = Math.hypot(head.x - eye.x, head.y - eye.y, head.z - eye.z);
 

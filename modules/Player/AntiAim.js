@@ -121,8 +121,42 @@
     let spinYaw = 0;
     let lastSeq = -1;
     let jitterPhase = 0;
+    let lastSpoof = null;
     let enginePatched = false;
     const seqSpoofMap = new Map();
+
+    function installFpBodyDerpHook() {
+      const fpbody = bridge.getGH()?.debug?.fpbody;
+
+      if (!fpbody || typeof fpbody.update !== 'function' || fpbody.update.__solsticeAntiAimFpBodyPatched) {
+        return;
+      }
+
+      const originalUpdate = fpbody.update;
+      const wrappedUpdate = function wrappedAntiAimFpBodyUpdate(dt, state, ...rest) {
+        const thirdPerson = typeof bridge.getFeature === 'function' ? bridge.getFeature('thirdperson') : null;
+        const player = state?.player || bridge.getGH()?.debug?.player;
+
+        if (!enabled || !lastSpoof || !player || !thirdPerson?.wantsDerpBody?.()) {
+          return originalUpdate.call(this, dt, state, ...rest);
+        }
+
+        const origYaw = player.yaw;
+        const origPitch = player.pitch;
+        player.yaw = lastSpoof.yaw;
+        player.pitch = lastSpoof.pitch;
+
+        try {
+          return originalUpdate.call(this, dt, state, ...rest);
+        } finally {
+          player.yaw = origYaw;
+          player.pitch = origPitch;
+        }
+      };
+
+      Object.defineProperty(wrappedUpdate, '__solsticeAntiAimFpBodyPatched', { value: true });
+      fpbody.update = wrappedUpdate;
+    }
 
     function installRespawnViewGuard() {
       if (enginePatched) {
@@ -249,8 +283,10 @@
 
         if (enabled) {
           installRespawnViewGuard();
+          installFpBodyDerpHook();
         } else {
           lastSeq = -1;
+          lastSpoof = null;
           seqSpoofMap.clear();
         }
       }
@@ -298,6 +334,9 @@
         return;
       }
 
+      lastSpoof = spoof;
+      installFpBodyDerpHook();
+
       if (context.localInput === context.input) {
         context.localInput = { ...context.input };
       }
@@ -330,7 +369,10 @@
 
     bridge.onReset(() => {
       lastSeq = -1;
+      lastSpoof = null;
       seqSpoofMap.clear();
     });
+
+    setInterval(installFpBodyDerpHook, 500);
   }
 })();
