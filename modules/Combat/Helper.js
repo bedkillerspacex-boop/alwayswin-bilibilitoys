@@ -1,7 +1,9 @@
 (() => {
   'use strict';
 
-  /* Helper：主武器打空后自动切到副武器补枪；击杀目标后再自动切回主武器。
+  /* Helper：
+     1. 主武器打空且未在换弹时，自动切到副武器补枪（绝不打断主武器换弹）
+     2. 手持副武器时，击杀目标后或停止射击（Idle）时自动切回主武器
      通过 primaryEmptyHandled 防止切回主武器后因主武器仍为 0 发而反复来回切枪。 */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
@@ -45,7 +47,8 @@
       module: 'helper',
       enabled: Boolean(module.on),
       autoSecondary: boolOf(module, 'Auto Secondary', true),
-      returnOnKill: boolOf(module, 'Return On Kill', true)
+      returnOnKill: boolOf(module, 'Return On Kill', true),
+      returnWhenIdle: boolOf(module, 'Return When Idle', true)
     };
     const key = JSON.stringify(config);
 
@@ -66,13 +69,14 @@
 
   register({
     name: 'Helper',
-    desc: 'Swaps to secondary when primary runs out of ammo, and returns to primary after a kill.',
+    desc: 'Swaps to secondary when primary runs out (without interrupting reload), and returns to primary on kill or when idle.',
     cat: 'Combat',
     nm: { l: 'helper', ls: 'helper', n: 'Helper', ns: 'Helper' },
     disp: '',
     settings: [
       { t: 'b', n: 'Auto Secondary', d: 'Swaps to secondary when primary ammo reaches 0.', v: 1 },
-      { t: 'b', n: 'Return On Kill', d: 'Swaps back to primary after scoring a kill.', v: 1 }
+      { t: 'b', n: 'Return On Kill', d: 'Swaps back to primary after scoring a kill.', v: 1 },
+      { t: 'b', n: 'Return When Idle', d: 'Swaps back to primary when not firing on secondary.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -99,18 +103,34 @@
   }
 
   function installGame(bridge) {
-    const SWAPPABLE_STATES = new Set(['ready', 'reload', 'inspect', 'draw']);
+    const PRIMARY_SWAPPABLE_STATES = new Set(['ready', 'inspect', 'draw']);
+    const SECONDARY_SWAPPABLE_STATES = new Set(['ready', 'reload', 'inspect', 'draw']);
+    const IDLE_RETURN_DELAY_MS = 500;
+    const IDLE_SINCE_FIRE_SEC = 0.5;
 
     let enabled = false;
     let autoSecondary = true;
     let returnOnKill = true;
+    let returnWhenIdle = true;
 
     let lastKills = null;
     let primaryEmptyHandled = false;
+    let swappedToSecondaryAt = 0;
 
     function resetTracking() {
       lastKills = null;
       primaryEmptyHandled = false;
+      swappedToSecondaryAt = 0;
+    }
+
+    function isFiring(debug, state) {
+      const input = debug?.input;
+      const fireHeld =
+        typeof input?.any === 'function'
+          ? Boolean(input.any(['Mouse0']))
+          : Boolean(input?.keys?.has('Mouse0'));
+
+      return fireHeld || Boolean(state.triggerDown) || Number(state.semiBuf) > 0;
     }
 
     function updateHelper() {
@@ -127,6 +147,7 @@
       if (!player.alive) {
         lastKills = kills;
         primaryEmptyHandled = false;
+        swappedToSecondaryAt = 0;
         return;
       }
 
@@ -146,24 +167,42 @@
         primaryEmptyHandled = false;
       }
 
-      if (!SWAPPABLE_STATES.has(state.state) || typeof state.swap !== 'function') {
+      if (typeof state.swap !== 'function') {
         return;
       }
 
-      if (returnOnKill && scoredKill && state.cur === 1 && primary) {
-        state.swap(0);
-        return;
+      if (state.cur === 1 && primary && SECONDARY_SWAPPABLE_STATES.has(state.state)) {
+        if (returnOnKill && scoredKill) {
+          state.swap(0);
+          return;
+        }
+
+        if (returnWhenIdle) {
+          const now = performance.now();
+          const firing = isFiring(debug, state);
+          const sinceFire = Number(state.sinceFire) || 0;
+
+          if (firing) {
+            swappedToSecondaryAt = now;
+          } else if (now - swappedToSecondaryAt >= IDLE_RETURN_DELAY_MS && sinceFire >= IDLE_SINCE_FIRE_SEC) {
+            state.swap(0);
+            return;
+          }
+        }
       }
 
       if (
         autoSecondary &&
         !primaryEmptyHandled &&
         state.cur === 0 &&
+        state.state !== 'reload' &&
+        PRIMARY_SWAPPABLE_STATES.has(state.state) &&
         primary &&
         primaryAmmo <= 0 &&
         secondaryAmmo > 0
       ) {
         primaryEmptyHandled = true;
+        swappedToSecondaryAt = performance.now();
         state.swap(1);
       }
     }
@@ -182,6 +221,7 @@
       enabled = nextEnabled;
       autoSecondary = data.autoSecondary !== false;
       returnOnKill = data.returnOnKill !== false;
+      returnWhenIdle = data.returnWhenIdle !== false;
     });
 
     bridge.onAfterArsenalUpdate(() => {
