@@ -136,25 +136,31 @@
 
     function ensureOverlay() {
       if (overlayCanvas && overlayCtx) {
-        return true;
+        if (!overlayCanvas.isConnected && document.documentElement) {
+          document.documentElement.append(overlayCanvas);
+        }
+
+        return overlayCanvas.isConnected;
       }
 
-      if (!document.body) {
+      if (!document.documentElement) {
         return false;
       }
 
       overlayCanvas = document.createElement('canvas');
       overlayCanvas.id = 'solstice-nametags-overlay';
+      overlayCanvas.setAttribute('aria-hidden', 'true');
       overlayCanvas.style.cssText = [
-        'position:fixed',
-        'inset:0',
-        'width:100%',
-        'height:100%',
-        'pointer-events:none',
-        'z-index:9998'
+        'position: fixed',
+        'inset: 0',
+        'display: block',
+        'width: 100vw',
+        'height: 100vh',
+        'pointer-events: none',
+        'z-index: 2147483647'
       ].join(';');
 
-      document.body.appendChild(overlayCanvas);
+      document.documentElement.append(overlayCanvas);
       overlayCtx = overlayCanvas.getContext('2d');
       resizeCanvas();
       return Boolean(overlayCtx);
