@@ -70,6 +70,7 @@
         "modules/Visual/HudEditor.js",
         "modules/Visual/Arraylist.js",
         "modules/Visual/ESP.js",
+        "modules/Visual/NameTags.js",
         "modules/Visual/Keystrokes.js",
         "modules/Visual/Notifications.js",
         "modules/Visual/Fatality.js",
@@ -78,6 +79,7 @@
         "modules/Misc/InputGuard.js",
         "modules/Misc/Config.js",
         "modules/Misc/UnLock.js",
+        "modules/Misc/IRC.js",
         "js/main.js",
         "js/config.js",
         "js/commands.js",
@@ -110,7 +112,9 @@
         "modules/Player/CustomName.js",
         "modules/Visual/ThirdPerson.js",
         "modules/Visual/ESP.js",
-        "modules/Misc/UnLock.js"
+        "modules/Visual/NameTags.js",
+        "modules/Misc/UnLock.js",
+        "modules/Misc/IRC.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

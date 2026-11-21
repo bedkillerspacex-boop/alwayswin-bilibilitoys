@@ -112,6 +112,7 @@
   function installGame(bridge) {
     const BOX_HALF_WIDTH = 0.35;
     const FRIEND_COLOR = [0, 255, 0];
+    const IRC_COLOR = [64, 156, 255];
     let config = {
       enabled: false,
       filled: true,
@@ -279,12 +280,14 @@
 
         const isSelf = actor === player;
         const isFriend = !isSelf && Number(actor.team) === Number(player.team);
+        const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
+        const isIrc = !isSelf && Boolean(irc && typeof irc.isIrcUser === 'function' && irc.isIrcUser(actor));
 
         if (isSelf && !config.local) {
           continue;
         }
 
-        if (isFriend && !config.friends) {
+        if (isFriend && !config.friends && !isIrc) {
           continue;
         }
 
@@ -347,7 +350,7 @@
           continue;
         }
 
-        const color = isFriend ? FRIEND_COLOR : config.color;
+        const color = isIrc ? IRC_COLOR : isFriend ? FRIEND_COLOR : config.color;
 
         overlayCtx.beginPath();
         overlayCtx.moveTo(hull[0][0], hull[0][1]);

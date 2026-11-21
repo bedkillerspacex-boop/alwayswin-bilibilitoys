@@ -221,14 +221,24 @@
   }
 
   function isEnemy(actor, player) {
-    return Boolean(
-      actor &&
-      actor !== player &&
-      actor.pos &&
-      actor.alive !== false &&
-      !actor.isK9 &&
-      Number(actor.team) !== Number(player.team)
-    );
+    if (
+      !actor ||
+      actor === player ||
+      !actor.pos ||
+      actor.alive === false ||
+      actor.isK9 ||
+      Number(actor.team) === Number(player.team)
+    ) {
+      return false;
+    }
+
+    const irc = getFeature('irc');
+
+    if (irc && typeof irc.isProtected === 'function' && irc.isProtected(actor)) {
+      return false;
+    }
+
+    return true;
   }
 
   function worldRayDistance(from, to) {
