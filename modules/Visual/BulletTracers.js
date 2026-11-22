@@ -112,6 +112,10 @@
       let scene = null;
       let geometry = null;
       let up = null;
+      let templateMaterial = null;
+      let prewarm = null;
+      let prewarmFrames = 0;
+      let prewarmDone = false;
       let tracers = [];
 
     function installScene() {
@@ -122,6 +126,13 @@
         return;
       }
 
+      if (prewarm) {
+        prewarm.removeFromParent();
+        prewarm = null;
+        prewarmFrames = 0;
+      }
+
+      prewarmDone = false;
       scene = next;
     }
 
@@ -135,6 +146,65 @@
       up = new three.Vector3(0, 1, 0);
       geometry = new three.CylinderGeometry(1, 1, 1, 24, 1, false);
       geometry.translate(0, 0.5, 0);
+    }
+
+    function createMaterial() {
+      const three = bridge.getGH()?.three;
+
+      if (!three) {
+        return null;
+      }
+
+      return new three.ShaderMaterial({
+        uniforms: {
+          uColorA: { value: new three.Color(color[0] / 255, color[1] / 255, color[2] / 255) },
+          uColorB: { value: new three.Color(color2[0] / 255, color2[1] / 255, color2[2] / 255) },
+          uOpacity: { value: 0.95 }
+        },
+        vertexShader: 'varying float vT; void main() { vT = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: 'uniform vec3 uColorA; uniform vec3 uColorB; uniform float uOpacity; varying float vT; void main() { vec3 c = mix(uColorA, uColorB, clamp(vT, 0.0, 1.0)); gl_FragColor = vec4(c, uOpacity); }',
+        transparent: true,
+        blending: three.NormalBlending,
+        depthWrite: false,
+        toneMapped: false,
+        side: three.DoubleSide
+      });
+    }
+
+    function ensurePrewarm() {
+      const three = bridge.getGH()?.three;
+      installScene();
+      installGeometry();
+
+      if (!three || !scene || !geometry) {
+        return;
+      }
+
+      if (!templateMaterial) {
+        templateMaterial = createMaterial();
+      }
+
+      if (!templateMaterial || prewarm || prewarmDone) {
+        return;
+      }
+
+      prewarm = new three.Mesh(geometry, templateMaterial);
+      prewarm.position.set(0, -1000, 0);
+      prewarm.scale.set(0.001, 0.001, 0.001);
+      prewarm.frustumCulled = false;
+      prewarm.renderOrder = 29;
+      scene.add(prewarm);
+      prewarmFrames = 2;
+
+      const gfx = bridge.getGH()?.debug?.gfx;
+
+      if (gfx?.renderer?.compile && gfx?.camera) {
+        try {
+          gfx.renderer.compile(prewarm, gfx.camera);
+        } catch {
+
+        }
+      }
     }
 
     function clear() {
@@ -166,20 +236,12 @@
 
       const direction = new three.Vector3(dx / length, dy / length, dz / length);
       const quaternion = new three.Quaternion().setFromUnitVectors(up, direction);
-      const material = new three.ShaderMaterial({
-        uniforms: {
-          uColorA: { value: new three.Color(color[0] / 255, color[1] / 255, color[2] / 255) },
-          uColorB: { value: new three.Color(color2[0] / 255, color2[1] / 255, color2[2] / 255) },
-          uOpacity: { value: 0.95 }
-        },
-        vertexShader: 'varying float vT; void main() { vT = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: 'uniform vec3 uColorA; uniform vec3 uColorB; uniform float uOpacity; varying float vT; void main() { vec3 c = mix(uColorA, uColorB, clamp(vT, 0.0, 1.0)); gl_FragColor = vec4(c, uOpacity); }',
-        transparent: true,
-        blending: three.NormalBlending,
-        depthWrite: false,
-        toneMapped: false,
-        side: three.DoubleSide
-      });
+      const material = templateMaterial ? templateMaterial.clone() : createMaterial();
+
+      if (!material) {
+        return;
+      }
+
       const mesh = new three.Mesh(geometry, material);
 
       mesh.position.copy(origin);
@@ -299,6 +361,16 @@
     }
 
     function update(dt) {
+      if (prewarm) {
+        prewarmFrames -= 1;
+
+        if (prewarmFrames <= 0) {
+          prewarm.removeFromParent();
+          prewarm = null;
+          prewarmDone = true;
+        }
+      }
+
       const step = Math.max(0, Math.min(Number(dt) || 0, 0.05));
 
       for (let i = tracers.length - 1; i >= 0; i -= 1) {
@@ -340,6 +412,11 @@
         color2 = data.color2.slice(0, 3).map((value) => Math.max(0, Math.min(255, Number(value) || 0)));
       }
 
+      if (templateMaterial) {
+        templateMaterial.uniforms.uColorA.value.set(color[0] / 255, color[1] / 255, color[2] / 255);
+        templateMaterial.uniforms.uColorB.value.set(color2[0] / 255, color2[1] / 255, color2[2] / 255);
+      }
+
       if (!enabled) {
         clear();
       }
@@ -358,6 +435,7 @@
 
       installScene();
       installGeometry();
+      ensurePrewarm();
 
       if (!scene || !geometry || !eye || !direction) {
         return null;
@@ -388,5 +466,6 @@
     bridge.onBeforePlayerUpdate(update, 60);
 
     bridge.onReset(clear);
+    setInterval(ensurePrewarm, 500);
   }
 })();

@@ -467,9 +467,20 @@
       return false;
     }
 
+    function rawSelfEye() {
+      const me = typeof bridge.getRawSelf === 'function' ? bridge.getRawSelf() : null;
+
+      if (!me || me.alive === false) {
+        return null;
+      }
+
+      const eyeHeight = me.sliding ? 0.72 : me.crouch ? 1 : 1.62;
+      return { x: me.x, y: me.y + eyeHeight, z: me.z };
+    }
+
     function selectTarget(context) {
       const { player, camera, debug, actors } = context;
-      const eye = config.legacyAura ? camera.position : player.eye || camera.position;
+      const eye = config.legacyAura ? camera.position : (rawSelfEye() || player.eye || camera.position);
       const range = Number(config.range) || 0;
       const head = player.pos.clone();
       const candidates = [];
@@ -626,8 +637,11 @@
       if (!config.legacyAura && debug.player?.pos) {
         const player = debug.player;
         const airborne = player.e && player.e.onGround === false;
-        let localEyeHeight =
-          player.mode === 'slide' ? 0.72 : player.stance === 'crouch' ? 1.0 : 1.62;
+        const rawSelf = typeof bridge.getRawSelf === 'function' ? bridge.getRawSelf() : null;
+        const hasRawSelf = Boolean(rawSelf && rawSelf.alive !== false);
+        let localEyeHeight = hasRawSelf
+          ? (rawSelf.sliding ? 0.72 : rawSelf.crouch ? 1.0 : 1.62)
+          : (player.mode === 'slide' ? 0.72 : player.stance === 'crouch' ? 1.0 : 1.62);
 
         if (
           slideDerp &&
@@ -639,25 +653,20 @@
         }
 
         const airCompensateY = airborne ? -(Number(player.vel?.y) || 0) * 0.016 : 0;
-        let originY = player.pos.y + localEyeHeight + airCompensateY;
+        let originY = (hasRawSelf ? rawSelf.y : player.pos.y) + localEyeHeight + airCompensateY;
 
-        if (airborne && typeof bridge.getRawSelf === 'function') {
-          const rawSelf = bridge.getRawSelf();
+        if (airborne && hasRawSelf) {
+          const estServerY = rawSelf.y + (Number(rawSelf.vy) || 0) * 0.03;
 
-          if (rawSelf && rawSelf.alive !== false) {
-            const estServerY = rawSelf.y + (Number(rawSelf.vy) || 0) * 0.03;
-
-            if (Math.abs(estServerY - player.pos.y) > 0.12) {
-              const serverEyeH = rawSelf.sliding ? 0.72 : rawSelf.crouch ? 1.0 : 1.62;
-              originY = estServerY + serverEyeH;
-            }
+          if (Math.abs(estServerY - player.pos.y) > 0.12) {
+            originY = estServerY + localEyeHeight;
           }
         }
 
         origin = {
-          x: player.pos.x,
+          x: hasRawSelf ? rawSelf.x : player.pos.x,
           y: originY,
-          z: player.pos.z
+          z: hasRawSelf ? rawSelf.z : player.pos.z
         };
       }
 

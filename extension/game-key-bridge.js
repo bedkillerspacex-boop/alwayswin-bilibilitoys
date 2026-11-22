@@ -94,6 +94,105 @@
 
     return snap.players.find((p) => p && p.id === latestSelfId) || null;
   }
+
+  function installShotTickFix() {
+    function rewrite(data) {
+      if (!active) {
+        return data;
+      }
+
+      const snapshot = getRawSnapshot();
+
+      if (!snapshot || !Number.isFinite(snapshot.tick) || snapshot.tick <= 0) {
+        return data;
+      }
+
+      if (typeof data === 'string') {
+        if (
+          !data.includes('"type":"shot"') &&
+          !data.includes('"type": "shot"') &&
+          !data.includes('"type":"melee"') &&
+          !data.includes('"type": "melee"')
+        ) {
+          return data;
+        }
+
+        try {
+          const message = JSON.parse(data);
+
+          if (!message || (message.type !== 'shot' && message.type !== 'melee')) {
+            return data;
+          }
+
+          message.tick = snapshot.tick;
+          return JSON.stringify(message) + (data.endsWith('\n') ? '\n' : '');
+        } catch {
+          return data;
+        }
+      }
+
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+        const bytes = data instanceof ArrayBuffer
+          ? new Uint8Array(data)
+          : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+        if (bytes.byteLength > 16384 || bytes[0] !== 0x7b) {
+          return data;
+        }
+
+        try {
+          const text = new TextDecoder().decode(bytes);
+          const message = JSON.parse(text);
+
+          if (!message || (message.type !== 'shot' && message.type !== 'melee')) {
+            return data;
+          }
+
+          message.tick = snapshot.tick;
+          return new TextEncoder().encode(JSON.stringify(message) + (text.endsWith('\n') ? '\n' : ''));
+        } catch {
+          return data;
+        }
+      }
+
+      return data;
+    }
+
+    function install() {
+      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeShotTick) {
+        const original = WebSocket.prototype.send;
+        const send = function send(data) {
+          return original.call(this, rewrite(data));
+        };
+
+        Object.defineProperty(send, '__solsticeShotTick', { value: true });
+        WebSocket.prototype.send = send;
+      }
+
+      if (typeof RTCDataChannel === 'function' && !RTCDataChannel.prototype.send.__solsticeShotTick) {
+        const original = RTCDataChannel.prototype.send;
+        const send = function send(data) {
+          return original.call(this, rewrite(data));
+        };
+
+        Object.defineProperty(send, '__solsticeShotTick', { value: true });
+        RTCDataChannel.prototype.send = send;
+      }
+
+      if (typeof WritableStreamDefaultWriter === 'function' && !WritableStreamDefaultWriter.prototype.write.__solsticeShotTick) {
+        const original = WritableStreamDefaultWriter.prototype.write;
+        const write = function write(chunk) {
+          return original.call(this, rewrite(chunk));
+        };
+
+        Object.defineProperty(write, '__solsticeShotTick', { value: true });
+        WritableStreamDefaultWriter.prototype.write = write;
+      }
+    }
+
+    install();
+    setInterval(install, 500);
+  }
   let lastInputState = '';
   let guardSwallow = true;
   let guardMouse = true;
@@ -864,6 +963,7 @@
   }, true);
   window.addEventListener('blur', resetRuntime);
 
+  installShotTickFix();
   announce();
   timer = setInterval(announce, RETRY_INTERVAL_MS);
   setInterval(installHooks, 250);
