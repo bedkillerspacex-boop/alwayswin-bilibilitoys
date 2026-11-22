@@ -537,18 +537,18 @@
 
     const peersById = new Map();
 
+    function resolveRoomId(eng, roomObj) {
+      const r = roomObj || eng?.room;
+      const raw = r?.id ?? r?.code ?? r?.roomId ?? r?.room ?? eng?.net?.hello?.room ?? '';
+      return raw != null && raw !== '' ? String(raw) : '';
+    }
+
     function syncRoomFromEngine() {
       const eng = bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
       if (!eng) {
         return;
       }
-      const nextRoomId = eng.room?.id != null
-        ? String(eng.room.id)
-        : eng.room?.code != null
-          ? String(eng.room.code)
-          : eng.room?.roomId != null
-            ? String(eng.room.roomId)
-            : '';
+      const nextRoomId = resolveRoomId(eng, eng.room);
       const nextPlayerId = eng.net?.id != null ? String(eng.net.id) : '';
       if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
         currentRoomId = nextRoomId;
@@ -592,7 +592,7 @@
           if (typeof proto.setRoom === 'function' && !proto.setRoom.__solsticeIrcPatched) {
             const origSetRoom = proto.setRoom;
             const wrappedSetRoom = function wrappedIrcSetRoom(room, ...rest) {
-              const nextRoomId = room?.id != null ? String(room.id) : room?.code != null ? String(room.code) : room?.roomId != null ? String(room.roomId) : '';
+              const nextRoomId = resolveRoomId(this, room);
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : '';
 
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
@@ -611,7 +611,7 @@
           if (typeof proto.snapshot === 'function' && !proto.snapshot.__solsticeIrcPatched) {
             const origSnapshot = proto.snapshot;
             const wrappedSnapshot = function wrappedIrcSnapshot(s, ...rest) {
-              const nextRoomId = this.room?.id != null ? String(this.room.id) : this.room?.code != null ? String(this.room.code) : this.room?.roomId != null ? String(this.room.roomId) : currentRoomId;
+              const nextRoomId = resolveRoomId(this, this.room) || currentRoomId;
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : currentPlayerId;
 
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
