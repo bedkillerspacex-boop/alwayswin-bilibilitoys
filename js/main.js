@@ -207,7 +207,7 @@ function frame(ts){
     if(!document.hidden&&(minInterval<=0||ts-lastVisualDrawAt>=minInterval-1)){
       const visualDt=minInterval>0&&lastVisualDrawAt>0?Math.min(0.1,(ts-lastVisualDrawAt)/1000):dt;
       lastVisualDrawAt=ts;
-      ctx.setTransform(1,0,0,1,0,0);
+      ctx.setTransform(DPR,0,0,DPR,0,0);
       ctx.clearRect(0,0,W,H);
       for(const m of RENDER_MODS) renderModule(m,visualDt);
     }
