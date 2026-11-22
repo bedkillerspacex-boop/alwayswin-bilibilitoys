@@ -93,3 +93,40 @@ node preview/bgtest.mjs         # 后台 service worker 单测
 ## License
 
 Apache-2.0
+
+## 性能（b1.0）
+
+目标：渣机也能稳 60 fps。核心改动在 `js/perf.js` + `js/core.js`：
+
+| 优化 | 做法 |
+|---|---|
+| 光晕 | 全部 `ctx.shadowBlur` 换成预烘焙径向精灵（`Perf.glow`），一次 `drawImage` 顶掉一次模糊光栅 |
+| 字体 | `setFont` 只在字体真正变化时写 `ctx.font`；`uiFont()` 结果缓存 500ms |
+| 颜色 | `rgb()` 按 (r,g,b,1% alpha) 量化缓存，砍掉每帧上千次模板字符串 |
+| 圆角矩形 | `r≈0 && flags=0` 直接走 `fillRect`，不再建路径 |
+| 主题色 | `themed()` 每帧缓存，Arraylist 每行 / Watermark 每字只算一次 |
+| 设置查找 | `iSet()` + 各模块的 `settings.find` 走缓存表 |
+| 自适应画质 | 按帧时间自动 High → Balanced → Low：关光晕、降 DPR(2.0/1.5/1.0)、减特效 |
+| 隐藏页面 | `document.hidden` 时整帧跳过绘制 |
+
+每帧 canvas 调用对比（1300×300 headless，同一场景，`preview/bench.html`）：
+
+| 指标 | 优化前 | 优化后 High | 优化后 Low |
+|---|---|---|---|
+| shadowBlur 绘制（游戏内） | 22.0 | **0** | **0** |
+| shadowBlur 绘制（GUI 打开） | 25.0 | **0** | **0** |
+| 文字绘制 | 34.0 | 26.0 | 26.0 |
+| 路径操作 | 14.0 | 10.0 | 10.0 |
+| save/restore | 18.0 | 18.0 | 6.0 |
+
+画质开关：`HUDSettings → Quality`（Auto / High / Balanced / Low），配 `Max DPR`、`Max Visual FPS`、`Overlay FPS` 一起用。
+
+## 发布
+
+标签规则：`b1.0` → `b1.1` → `b1.1hotfix`（对应 manifest `1.0.0` / `1.1.0` / `1.1.1`）。
+
+```pwsh
+.\tools\release.ps1 -Tag b1.1 -Notes "改了什么"
+```
+
+脚本会：改 `manifest.json` 版本号 → 排除 `preview/` 等目录暂存 → 用 `build/solstice.pem` 打 crx（有 key 就复用，扩展 ID 不变）→ 建 GitHub release（tag 同名）→ 上传 `solstice-<tag>.crx`。

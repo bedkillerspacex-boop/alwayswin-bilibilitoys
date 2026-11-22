@@ -49,6 +49,7 @@
       ],
       "js": [
         "extension/boot.js",
+        "js/perf.js",
         "js/core.js",
         "modules/Combat/AimBot.js",
         "modules/Combat/TriggerBot.js",

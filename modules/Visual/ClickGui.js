@@ -183,10 +183,15 @@ function drawClickGui(dt){
               const cpy=(sliderRect.y+sliderRect.h)/2;
               ctx.fillStyle=rgb(rgbC,a);
               ctx.beginPath(); ctx.arc(cpx,cpy,5.5*S.clickAnim*a,0,Math.PI*2); ctx.fill();
-              ctx.save();
-              ctx.shadowColor=rgb(rgbC,0.9*a); ctx.shadowBlur=12;
-              fillRR(sliderRect.x,sliderRect.y,sliderRect.w-sliderRect.x,sliderRect.h-sliderRect.y,15,rgbC,a*0.55,3);
-              ctx.restore();
+              const perfCg=window.SolsticePerf;
+              if(perfCg){
+                perfCg.glow(sliderRect.x,sliderRect.y,sliderRect.w-sliderRect.x,sliderRect.h-sliderRect.y,rgbC,12,a*0.6);
+              }else{
+                ctx.save();
+                ctx.shadowColor=rgb(rgbC,0.9*a); ctx.shadowBlur=12;
+                fillRR(sliderRect.x,sliderRect.y,sliderRect.w-sliderRect.x,sliderRect.h-sliderRect.y,15,rgbC,a*0.55,3);
+                ctx.restore();
+              }
 
               const val=st.v.toFixed(2);
               text(bg.w-5-tw(val,18),bg.y+2.5,val,[170,170,170],a,true,false,18);

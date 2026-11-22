@@ -129,10 +129,23 @@ function drawWatermark(dt){
     chars.push({ch,x,c,w:tw(ch,size,true)});
     x+=tw(ch,size,true);
   }
+  /* 一整块光晕精灵盖在字下面，替代每个字一次 shadowBlur */
+  if(glow){
+    const perfWm=window.SolsticePerf;
+    const mid=chars.length?chars[Math.floor(chars.length/2)].c:[255,255,255];
+    if(perfWm) perfWm.glow(px-8,py-6,(x-px)+16,size+12,mid,size*0.5,0.75*wm.anim);
+    else {
+      ctx.save();
+      ctx.shadowColor=rgb(mid,0.85*wm.anim); ctx.shadowBlur=size/3;
+      ctx.fillStyle=rgb(mid,0.9); ctx.fillText(text,px,py);
+      ctx.restore();
+    }
+  }
   if(hasIcon){
     const iy=py+Math.round((size-iconH)/2);
     const tinted=tintedAlwaysWin(iconW,iconH,iconC);
-    if(glow){
+    const perfWm=window.SolsticePerf;
+    if(glow&&!perfWm){
       ctx.save();
       ctx.shadowColor=rgb(iconC,0.85*wm.anim); ctx.shadowBlur=size/3;
       ctx.globalAlpha=wm.anim;
@@ -147,19 +160,12 @@ function drawWatermark(dt){
     ctx.drawImage(tinted,px,iy,iconW,iconH);
     ctx.restore();
   }
-  if(glow){
-    ctx.save();
-    for(const q of chars){
-      ctx.shadowColor=rgb(q.c,0.85*wm.anim); ctx.shadowBlur=size/3;
-      ctx.fillStyle=rgb(q.c,0.9);
-      ctx.fillText(q.ch,q.x,py);
-    }
-    ctx.restore();
-  }
   hudSetSize('Watermark',x-px,size);
-  for(const q of chars){
-    ctx.fillStyle=rgb([q.c[0]*0.25,q.c[1]*0.25,q.c[2]*0.25],0.925);
-    ctx.fillText(q.ch,q.x+3.25,py+3.25);
+  if(!(window.SolsticePerf&&window.SolsticePerf.fps<40)){
+    for(const q of chars){
+      ctx.fillStyle=rgb([q.c[0]*0.25,q.c[1]*0.25,q.c[2]*0.25],0.925);
+      ctx.fillText(q.ch,q.x+3.25,py+3.25);
+    }
   }
   for(const q of chars){
     ctx.fillStyle=rgb(q.c,1);
@@ -180,12 +186,9 @@ function drawSevenDaysWatermark(px,py,layout,a){
 
   hudSetSize('Watermark',w,h);
 
-  ctx.save();
-  ctx.shadowColor=`rgba(0,0,0,${(0.45*a).toFixed(3)})`;
-  ctx.shadowBlur=12;
-  ctx.shadowOffsetY=2;
+  const perf7=window.SolsticePerf;
+  if(perf7) perf7.glow(px-4,py-2,w+8,h+8,[0,0,0],14,0.5*a);
   fillRR(px,py,w,h,4,[247,247,249],0.95*a,CORNER_TOP|CORNER_BOTTOM);
-  ctx.restore();
 
   /* 左侧红色竖条 + 底部下划线 */
   fillRR(px+padX,py+padY+2,3,size-4,1,[232,58,72],a,CORNER_TOP|CORNER_BOTTOM);

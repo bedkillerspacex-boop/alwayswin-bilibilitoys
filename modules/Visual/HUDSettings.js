@@ -16,9 +16,17 @@ const THEMES = {
 };
 const THEME_NAMES = ['Trans', 'Bubblegum', 'Watermelon', 'Sunset', 'Poison', 'Custom'];
 
+/* 设置项查找缓存：每帧上千次调用也只是一次 Map 命中 */
+let iSetAt = -1e9;
+let iSetMap = null;
 function iSet(n) {
-  const im = BY_NAME['HUDSettings'];
-  return im && im.settings.find((s) => s.n === n);
+  if (!iSetMap || NOW_MS - iSetAt > 400) {
+    const im = BY_NAME['HUDSettings'];
+    iSetMap = new Map();
+    if (im) for (const s of im.settings) iSetMap.set(s.n, s);
+    iSetAt = NOW_MS;
+  }
+  return iSetMap.get(n);
 }
 
 function namingStyle() {
@@ -47,7 +55,7 @@ function customColors() {
   }
   return out.length ? out : [[255, 255, 255]];
 }
-function themed(index) {
+function computeThemed(index) {
   const th = themeName();
   const cols = th === 'Custom' ? customColors() : THEMES[th] || THEMES.Sunset;
   if (!cols.length) return [255, 255, 255];
@@ -57,6 +65,11 @@ function themed(index) {
   const si = Math.floor(angle / seg);
   const f = angle / seg - si;
   return lerpC(cols[si % cols.length], cols[(si + 1) % cols.length], f);
+}
+/* 同一帧内同一个 index 只算一次（Arraylist 每行、Watermark 每字都会问） */
+function themed(index) {
+  const perf = window.SolsticePerf;
+  return perf ? perf.theme(index, computeThemed) : computeThemed(index);
 }
 const GOOGLE_FONT_OFFICIAL = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap';
 const GOOGLE_FONT_CN_MIRROR = 'https://fonts.loli.net/css2?family=Inter:wght@400;600;700&display=swap';
@@ -102,20 +115,30 @@ function ensureGoogleFont() {
   }
 }
 
+let uiFontCache = '';
+let uiFontAt = -1e9;
 function uiFont() {
+  if (uiFontCache && NOW_MS - uiFontAt < 500) {
+    return uiFontCache;
+  }
+
   const f = iSet('Font');
   const v = f ? f.vals[f.v] || 'Product Sans' : 'Product Sans';
+  uiFontAt = NOW_MS;
 
   if (v === 'Mojangles') {
-    return 'Mojangles';
+    uiFontCache = 'Mojangles';
+    return uiFontCache;
   }
 
   if (v === 'Google Font') {
     ensureGoogleFont();
-    return 'Inter';
+    uiFontCache = 'Inter';
+    return uiFontCache;
   }
 
-  return 'Product Sans';
+  uiFontCache = 'Product Sans';
+  return uiFontCache;
 }
 
 (() => {
@@ -155,6 +178,16 @@ function uiFont() {
     const fontSourceSetting = module.settings.find((item) => item.n === 'Font Source');
     if (fontSourceSetting) {
       fontSourceSetting.vis = fontSetting?.vals?.[fontSetting.v] === 'Google Font';
+    }
+
+    /* 画质档位（Auto 交给自适应，其余手动锁定） */
+    const perf = window.SolsticePerf;
+    const qualitySetting = module.settings.find((item) => item.n === 'Quality');
+    const qualityIndex = qualitySetting ? Number(qualitySetting.v) || 0 : 0;
+
+    if (perf) {
+      perf.setAuto(qualityIndex === 0);
+      if (qualityIndex > 0) perf.setLevel([2, 2, 1, 0][qualityIndex] ?? 2);
     }
 
     const active = Boolean(module.on);
@@ -227,7 +260,8 @@ function uiFont() {
       { t: 'n', n: 'Max Visual FPS', d: 'Max redraw rate for parent HUD elements when GUI is closed.', v: 60, min: 15, max: 144, step: 5 },
       { t: 'n', n: 'Overlay FPS', d: 'Max redraw rate for in-game ESP, NameTags, and Backtrack overlays.', v: 60, min: 15, max: 144, step: 5 },
       { t: 'n', n: 'Max DPR', d: 'Cap canvas pixel ratio to reduce GPU fill-rate on high-DPI screens.', v: 1.5, min: 0.75, max: 2.0, step: 0.25 },
-      { t: 'b', n: 'Reduce Blur', d: 'Skip heavy background blur filters while in-game.', v: 1 }
+      { t: 'b', n: 'Reduce Blur', d: 'Skip heavy background blur filters while in-game.', v: 1 },
+      { t: 'e', n: 'Quality', d: 'Auto scales detail to hold 60 fps; the rest lock a preset.', v: 0, vals: ['Auto', 'High', 'Balanced', 'Low'] }
     ],
     onInit(m) {
       const th = m.settings.find((s) => s.n === 'Theme');

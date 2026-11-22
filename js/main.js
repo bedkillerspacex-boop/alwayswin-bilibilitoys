@@ -163,13 +163,16 @@ let lastVisualDrawAt=0;
 
 /* 单个模块抛错绝不能带走整个渲染循环 */
 function renderModule(mod,dt){
+  ctx.save();
   try{
     mod.onRender(dt);
   }catch(error){
     if(!mod.__renderErrorLogged){
       mod.__renderErrorLogged=true;
-      console.warn(`[Solstice] ${mod.name} render failed`,error);
+      console.warn(`[AlwaysWin] ${mod.name} render failed`,error);
     }
+  }finally{
+    ctx.restore();
   }
 }
 
@@ -179,6 +182,10 @@ function frame(ts){
     let dt=(ts-lastTs)/1000; lastTs=ts;
     if(!isFinite(dt)||dt<=0) dt=0.016;
     dt=Math.min(dt,0.05);
+
+    /* 性能探针：自适应画质 + 主题色每帧缓存 */
+    const perf=window.SolsticePerf;
+    if(perf){ perf.tick(ts,dt); perf.beginFrame(); }
 
     const e=S.ease;
     if(S.open) e.inc(dt*18/10); else e.dec(dt*2*18/10);
@@ -197,9 +204,10 @@ function frame(ts){
       ?(1000/Math.max(15,hudCfg.maxFps||60))
       :0;
 
-    if(minInterval<=0||ts-lastVisualDrawAt>=minInterval-1){
+    if(!document.hidden&&(minInterval<=0||ts-lastVisualDrawAt>=minInterval-1)){
       const visualDt=minInterval>0&&lastVisualDrawAt>0?Math.min(0.1,(ts-lastVisualDrawAt)/1000):dt;
       lastVisualDrawAt=ts;
+      ctx.setTransform(1,0,0,1,0,0);
       ctx.clearRect(0,0,W,H);
       for(const m of RENDER_MODS) renderModule(m,visualDt);
     }

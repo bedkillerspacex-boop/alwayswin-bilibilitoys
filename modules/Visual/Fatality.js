@@ -506,11 +506,17 @@
     fillRR(bx, barY, barW, 2.5, 0, [255, 255, 255], 0.12 * aText, 0);
 
     const fw = Math.max(0.001, barW * p);
-    ctx.save();
-    ctx.shadowColor = rgb(col, 0.85 * aText);
-    ctx.shadowBlur = 14;
-    fillRR(bx, barY, fw, 2.5, 0, col, 0.95 * aText, 0);
-    ctx.restore();
+    const perfSp = window.SolsticePerf;
+    if (perfSp) {
+      perfSp.glow(bx, barY - 4, fw, 10.5, col, 12, 0.8 * aText);
+      fillRR(bx, barY, fw, 2.5, 0, col, 0.95 * aText, 0);
+    } else {
+      ctx.save();
+      ctx.shadowColor = rgb(col, 0.85 * aText);
+      ctx.shadowBlur = 14;
+      fillRR(bx, barY, fw, 2.5, 0, col, 0.95 * aText, 0);
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.fillStyle = rgb([255, 255, 255], 0.9 * aText);

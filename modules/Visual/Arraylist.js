@@ -54,26 +54,31 @@ function drawArrayList(dt){
   const totalH=Math.max(FS,y-layout.y);
   hudSetSize('Arraylist',Math.max(120,Math.ceil(maxRowW)),Math.ceil(totalH));
 
+  const perfRow=window.SolsticePerf;
+
   for(const r of rows){
     const rect=r.rect;
     if(mode==='Outline') fillRR(rect.x,rect.y,rect.w-rect.x,rect.h-rect.y,0,[0,0,0],0.4*r.anim,0);
 
-    ctx.save();
-    ctx.shadowColor=`rgba(0,0,0,${0.55*r.anim})`; ctx.shadowBlur=22;
-    if(glow&&mode!=='Bar'&&mode!=='Split'){ ctx.shadowColor=rgb(r.color,0.5*r.anim); ctx.shadowBlur=Math.min(40,glowStrength*0.3); }
+    /* 投影/发光都用预烘焙光晕精灵，彻底不再碰 ctx.shadowBlur */
+    if(glow&&mode!=='Bar'){
+      const blur=Math.min(22,Math.max(6,glowStrength*0.18));
+      if(perfRow) perfRow.glow(r.tx-8,r.y-5,r.nameW+r.suffW+16,FS+10,r.color,blur,0.55*r.anim);
+      else {
+        ctx.save(); ctx.shadowColor=rgb(r.color,0.5*r.anim); ctx.shadowBlur=blur;
+        ctx.fillStyle=rgb(r.color,r.anim); ctx.fillText(r.name,r.tx,r.y); ctx.restore();
+      }
+    }
+
     setFont(FS,true);
     ctx.fillStyle=rgb(r.color,r.anim);
     ctx.fillText(r.name,r.tx,r.y);
     if(r.suff){ ctx.fillStyle=rgb([229,229,229],r.anim); ctx.fillText(r.suff,r.tx+r.nameW,r.y); }
-    ctx.restore();
 
     if(mode==='Split'){
       const lx=rect.w+2, ly=r.y+4, lh=FS-6;
+      if(glow&&perfRow) perfRow.glow(lx-4,ly-3,4+lh*0.4,lh+6,r.color,10,0.6*r.anim);
       fillRR(lx,ly,4,lh,3,r.color,r.anim,0);
-      if(glow){
-        ctx.save(); ctx.shadowColor=rgb(r.color,0.7*r.anim); ctx.shadowBlur=Math.min(40,glowStrength*0.3);
-        fillRR(lx,ly,4,lh,3,r.color,r.anim,0); ctx.restore();
-      }
     } else if(mode==='Bar'){
       ctx.save(); ctx.fillStyle=rgb(r.color,r.anim);
       ctx.fillRect(rect.w-2,r.y,4,FS); ctx.restore();

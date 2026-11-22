@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Solstice canvas benchmark</title>
+<link rel="stylesheet" href="../extension/overlay.css">
+<style>
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans-Bold.ttf") format("truetype");font-weight:700;font-display:block}
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans.ttf") format("truetype");font-weight:400;font-display:block}
+  html,body{margin:0;padding:0;background:#05060a;overflow:hidden}
+  #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;opacity:0.35;z-index:0}
+  #out{position:fixed;left:10px;top:8px;z-index:2147483647;color:#cfe8ff;font:12px/1.55 monospace;white-space:pre-wrap;text-shadow:0 0 6px #000}
+</style>
+</head>
+<body>
+<img id="bg" src="bg.png">
+<pre id="out"></pre>
+<script>
+window.addEventListener("error", e => { const o = document.getElementById("out"); if (o) o.textContent = "ERR " + e.message + " @" + e.filename + ":" + e.lineno; });
+window.addEventListener("unhandledrejection", e => { const o = document.getElementById("out"); if (o) o.textContent = "REJ " + (e.reason && (e.reason.stack || e.reason.message) || e.reason); });
+/* ── canvas 调用计数（在加载 UI 之前挂到原型上）────────────────── */
+window.__STATS = { fill: 0, fillRect: 0, text: 0, stroke: 0, path: 0, grad: 0, img: 0, blur: 0, save: 0, total: 0, frames: 0 };
+
+(() => {
+  const proto = CanvasRenderingContext2D.prototype;
+  const S = window.__STATS;
+  const bump = (name) => { S[name] += 1; S.total += 1; };
+  const wrap = (name, fn) => {
+    const orig = proto[name];
+    if (!orig) return;
+    proto[name] = function (...args) {
+      fn(this, args);
+      return orig.apply(this, args);
+    };
+  };
+  wrap('fill', (c) => { bump('fill'); if (c.shadowBlur) bump('blur'); });
+  wrap('fillRect', (c) => { bump('fillRect'); if (c.shadowBlur) bump('blur'); });
+  wrap('fillText', (c) => { bump('text'); if (c.shadowBlur) bump('blur'); });
+  wrap('stroke', (c) => { bump('stroke'); if (c.shadowBlur) bump('blur'); });
+  wrap('strokeText', (c) => { bump('text'); if (c.shadowBlur) bump('blur'); });
+  wrap('beginPath', () => bump('path'));
+  wrap('createLinearGradient', () => bump('grad'));
+  wrap('createRadialGradient', () => bump('grad'));
+  wrap('drawImage', () => bump('img'));
+  wrap('save', () => bump('save'));
+})();
+</script>
+<script src="../extension/boot.js"></script>
+<script src="../js/perf.js"></script>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/HUDSettings.js"></script>
+<script src="../modules/Visual/Arraylist.js"></script>
+<script src="../modules/Visual/Watermark.js"></script>
+<script src="../modules/Visual/Notifications.js"></script>
+<script src="../modules/Visual/ESP.js"></script>
+<script src="../modules/Visual/NameTags.js"></script>
+<script src="../modules/Visual/Keystrokes.js"></script>
+<script src="../modules/Visual/Indicators.js"></script>
+<script src="../modules/Visual/SpeedHUD.js"></script>
+<script src="../modules/Visual/Fatality.js"></script>
+<script src="../modules/Visual/ThirdPerson.js"></script>
+<script src="../modules/Visual/ClickGuiFatality.js"></script>
+<script src="../modules/Visual/ClickGui.js"></script>
+<script src="../modules/Combat/AimBot.js"></script>
+<script src="../modules/Combat/Aura.js"></script>
+<script src="../modules/Combat/NoRecoil.js"></script>
+<script src="../modules/Combat/TriggerBot.js"></script>
+<script src="../modules/Combat/Backtrack.js"></script>
+<script src="../modules/Movement/Speed.js"></script>
+<script src="../modules/Movement/NoSlowdown.js"></script>
+<script src="../modules/Movement/Sprint.js"></script>
+<script src="../modules/Player/AntiAim.js"></script>
+<script src="../modules/Player/CustomName.js"></script>
+<script src="../modules/Misc/Config.js"></script>
+<script src="../modules/Misc/InputGuard.js"></script>
+<script src="../modules/Misc/KillSound.js"></script>
+<script src="../modules/Misc/UnLock.js"></script>
+<script src="../js/main.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/commands.js"></script>
+<script src="../extension/page.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const ST = window.__STATS;
+  try { await document.fonts.load('700 100px "Product Sans"'); } catch (e) {}
+  await document.fonts.ready;
+  try { await document.getElementById('bg').decode(); } catch (e) {}
+
+  const q = new URLSearchParams(location.search).get('q') || 'auto';
+  const perf = window.SolsticePerf;
+
+  if (perf) {
+    if (q === 'auto') perf.setAuto(true);
+    else { perf.setAuto(false); perf.setLevel(q === 'low' ? 0 : q === 'mid' ? 1 : 2); }
+  }
+
+  const fat = getMod('Fatality');
+  if (fat) { const pi = fat.settings.find((s) => s.n === 'Play on inject'); if (pi) pi.v = 0; setModuleOn(fat, false); }
+
+  /* 关掉会访问游戏 iframe 的模块，避免每帧 DOM 查询污染测量 */
+  for (const name of ['ThirdPerson', 'Speed', 'NoSlowdown', 'InputGuard', 'Config', 'KillSound']) {
+    const m = getMod(name);
+    if (m) setModuleOn(m, false);
+  }
+
+  const measure = (label, frames, open) => {
+    S.open = open;
+    S.ease.p = open ? 1 : 0;
+
+    /* 预热：光晕精灵、字体度量、主题缓存都建好，再开始计数 */
+    let warm = 1000;
+    for (let i = 0; i < 8; i += 1) { warm += 16; frame(warm); }
+
+    for (const k of Object.keys(ST)) ST[k] = 0;
+    let ts = warm;
+    for (let i = 0; i < frames; i += 1) {
+      ts += 16;
+      frame(ts);
+    }
+    const n = frames;
+    const per = (v) => (v / n).toFixed(1);
+    return [
+      `${label.padEnd(22)} draw=${per(ST.fill + ST.fillRect + ST.text + ST.stroke)}/f` +
+      `  text=${per(ST.text)}  pathops=${per(ST.path)}` +
+      `  grad=${per(ST.grad)}  img=${per(ST.img)}` +
+      `  blurDraws=${per(ST.blur)}  save=${per(ST.save)}`
+    ].join('');
+  };
+
+  const lines = [];
+  lines.push(`quality=${perf ? perf.name : 'n/a'}  dprCap=${perf ? perf.dprCap : '?'}  glow=${perf ? perf.glowEnabled : '?'}`);
+  lines.push(measure('HUD closed (in game)', 12, false));
+  lines.push(measure('GUI open', 12, true));
+
+  out.textContent = lines.join('\n');
+  document.title = 'BENCH-READY';
+})();
+</script>
+</body>
+</html>

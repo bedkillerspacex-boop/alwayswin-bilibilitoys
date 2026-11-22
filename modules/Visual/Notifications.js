@@ -131,11 +131,9 @@
 
       fillRR(x, y, boxWidth, bodyHeight, 5, [0, 0, 0], 0.7 * anim, CORNER_TOP | CORNER_BOTTOM);
 
-      ctx.save();
-      ctx.shadowColor = rgb(color, 1);
-      ctx.shadowBlur = 50;
+      const perfN = window.SolsticePerf;
+      if (perfN) perfN.glow(x, y, progressWidth, bodyHeight, color, 22, 0.55 * anim);
       fillRR(x, y, progressWidth, bodyHeight, 5, color, 0.7 * anim, CORNER_TOP | CORNER_BOTTOM);
-      ctx.restore();
 
       ctx.save();
       setFont(fontSize, false);

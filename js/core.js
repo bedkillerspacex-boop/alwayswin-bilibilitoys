@@ -10,7 +10,20 @@ class Ease{
   dec(v){this.p-=v;if(this.p<=0)this.p=0;}
 }
 
-const rgb=(c,a=1)=>`rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${clamp(a,0,1)})`;
+/* 颜色字符串缓存：alpha 量化到 1%，避免每帧上千次模板字符串拼接 */
+const rgbCache=new Map();
+function rgb(c,a=1){
+  const r=Math.round(c[0]),g=Math.round(c[1]),b=Math.round(c[2]);
+  const q=Math.round(clamp(a,0,1)*100);
+  const key=((r*256+g)*256+b)*101+q;
+  let v=rgbCache.get(key);
+  if(v===undefined){
+    v='rgba('+r+','+g+','+b+','+(q/100)+')';
+    if(rgbCache.size>4096) rgbCache.clear();
+    rgbCache.set(key,v);
+  }
+  return v;
+}
 const lerpC=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
 function hsv2rgb(h,s,v){
   const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);
@@ -69,9 +82,16 @@ if(document.fonts){
   setTimeout(clearMeasure,600);
   setTimeout(clearMeasure,1500);
 }
+/* 字体只在真正变化时才写回 ctx.font（字体字符串解析是隐藏大头） */
+let _fontKey='';
 function setFont(px,bold,icons){
-  ctx.font = icons? `400 ${px}px "Tenacity Icons", monospace`
-                  : `${bold?'700':'400'} ${px}px "${uiFont()}", system-ui, sans-serif`;
+  const fam=icons?'':uiFont();
+  const key=icons?('i'+px):((bold?'b':'r')+px+fam);
+  if(key!==_fontKey){
+    _fontKey=key;
+    ctx.font = icons? `400 ${px}px "Tenacity Icons", monospace`
+                    : `${bold?'700':'400'} ${px}px "${fam}", system-ui, sans-serif`;
+  }
   ctx.textBaseline='top';
 }
 function tw(str,px,bold,icons){
@@ -108,7 +128,11 @@ function rrPath(x,y,w,h,r,flags){
 }
 function fillRR(x,y,w,h,r,color,alpha,flags){
   if(alpha<=0.002||w<=0||h<=0) return;
-  rrPath(x,y,w,h,r,flags||0);
+  const fl=flags||0;
+  if(!(r>0.25)&&fl===0){
+    ctx.fillStyle=rgb(color,alpha); ctx.fillRect(x,y,w,h); return;
+  }
+  rrPath(x,y,w,h,r,fl);
   ctx.fillStyle=rgb(color,alpha); ctx.fill();
 }
 function fillGradRR(x,y,w,h,r,c1,c2,alpha,flags){
@@ -125,6 +149,8 @@ function gradFade(x,y,w,h,c1,c2,a1,a2){
   ctx.fillStyle=g; ctx.fillRect(x,y,w,h);
 }
 function glowRect(x,y,w,h,r,color,alpha,blur){
+  const perf=window.SolsticePerf;
+  if(perf&&perf.glow(x,y,w,h,color,blur,alpha)) return;
   ctx.save();
   ctx.shadowColor=rgb(color,alpha); ctx.shadowBlur=blur;
   fillRR(x,y,w,h,r,[0,0,0],0.001,0);
@@ -218,11 +244,14 @@ function resetCats(){
   }
 }
 function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
+  const perfCap=window.SolsticePerf?window.SolsticePerf.dprCap:2;
+  DPR=Math.min(window.devicePixelRatio||1,perfCap||2);
   W=window.innerWidth; H=window.innerHeight;
   canvas.width=Math.floor(W*DPR); canvas.height=Math.floor(H*DPR);
   canvas.style.width=W+'px'; canvas.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.textBaseline='top';
+  _fontKey='';
   CX=W/2; CY=H/2;
   K=Math.min(1,W/1680);
   resetCats();
