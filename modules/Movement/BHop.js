@@ -159,6 +159,10 @@
     let simPatched = false;
     let enginePatched = false;
     let latestServerGround = true;
+    let latestServerSpeed = 0;
+    let latestServerSliding = false;
+    let latestServerCrouch = false;
+    let latestServerSlideCooldown = 0;
     let syntheticSpace = false;
     let prevOnGround = false;
     let prevJumpCount = null;
@@ -189,8 +193,26 @@
 
       const originalInput = net.input;
       const wrappedInput = function wrappedBHopInput(input, ...rest) {
-        if (enabled && mode === 'Bug' && input && !latestServerGround && (input.buttons & 1)) {
-          input = { ...input, buttons: input.buttons & ~1 };
+        if (enabled && mode === 'Bug' && input) {
+          const moving = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0) > 0.01;
+          let buttons = input.buttons | 0;
+
+          if (moving && !(buttons & 8)) {
+            buttons |= 2; // SPRINT
+          }
+
+          if (!latestServerGround) {
+            buttons &= ~1; // release JUMP in air so server jumpHeld = false before landing
+          } else if (moving) {
+            if (!latestServerSliding && !latestServerCrouch && latestServerSlideCooldown <= 0 && latestServerSpeed > 5.2) {
+              buttons |= 16; // trigger server 1.3x slide boost (9.75 - 11.0 m/s)
+            }
+            buttons |= 1; // instant server JUMP on ground
+          }
+
+          if (buttons !== input.buttons) {
+            input = { ...input, buttons };
+          }
         }
 
         return originalInput.call(this, input, ...rest);
@@ -223,68 +245,16 @@
 
             if (me) {
               latestServerGround = Boolean(me.ground);
+              latestServerSliding = Boolean(me.sliding);
+              latestServerCrouch = Boolean(me.crouch);
+              latestServerSlideCooldown = Number(me.slideCooldown) || 0;
+              latestServerSpeed = Math.hypot(Number(me.vx) || 0, Number(me.vz) || 0);
             }
-
-            if (!enabled || !this.predicted || !this.player?.alive || !me?.alive) {
-              return originalSnapshot.call(this, s, ...rest);
-            }
-
-            if (mode === 'Smart') {
-              const result = originalSnapshot.call(this, s, ...rest);
-
-              if (this.error) {
-                this.error.y = 0;
-              }
-
-              return result;
-            }
-
-            if (mode !== 'Bug') {
-              return originalSnapshot.call(this, s, ...rest);
-            }
-
-            const before = {
-              x: this.predicted.x,
-              y: this.predicted.y,
-              z: this.predicted.z,
-              vx: this.predicted.vx,
-              vy: this.predicted.vy,
-              vz: this.predicted.vz,
-              ground: this.predicted.ground
-            };
 
             const result = originalSnapshot.call(this, s, ...rest);
 
-            if (this.predicted) {
-              // Never allow server reconciliation to reduce horizontal velocity or yank (x, z) backward
-              if (Math.hypot(before.vx, before.vz) > Math.hypot(this.predicted.vx, this.predicted.vz)) {
-                this.predicted.vx = before.vx;
-                this.predicted.vz = before.vz;
-              }
-
-              if (Math.hypot(this.predicted.x - before.x, this.predicted.z - before.z) < 2) {
-                this.predicted.x = before.x;
-                this.predicted.z = before.z;
-              }
-
-              // One-way downward Y pullback: stay low locally, snap down cleanly when server lands
-              if (!me.ground && this.predicted.y > before.y + 0.03) {
-                this.predicted.y = before.y;
-                this.predicted.vy = Math.min(this.predicted.vy, before.vy);
-                this.predicted.ground = before.ground;
-              }
-
-              if (this.previousPosition) {
-                this.previousPosition.x = this.predicted.x;
-                this.previousPosition.y = this.predicted.y;
-                this.previousPosition.z = this.predicted.z;
-              }
-
-              if (this.error) {
-                this.error.x = 0;
-                this.error.y = 0;
-                this.error.z = 0;
-              }
+            if (enabled && (mode === 'Smart' || mode === 'Bug') && this.error) {
+              this.error.y = 0;
             }
 
             return result;
