@@ -237,10 +237,11 @@
             }
 
             if (mode === 'Bug') {
+              // Optimal fast-hop curve: 0.55x takeoff (~6 ticks to apex) + 2.5g fast-fall (~11 ticks total air time)
               if (wasGround && !wasJumpHeld && !motionState.ground && motionState.vy > 0) {
-                motionState.vy *= jumpScale;
+                motionState.vy *= 0.55;
               } else if (!motionState.ground) {
-                motionState.vy -= 22 * STEP * 0.85;
+                motionState.vy -= 22 * STEP * 1.5;
               }
             } else if (mode === 'Blatant') {
               if (wasGround && !wasJumpHeld && !motionState.ground && motionState.vy > 0) {
