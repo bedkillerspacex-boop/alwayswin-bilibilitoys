@@ -21,7 +21,6 @@
   let markerHead = false;
   let markerKill = false;
 
-  const killFeed = [];
   const stats = {
     kills: 0,
     deaths: 0,
@@ -167,24 +166,10 @@
         stats.streak = 0;
       }
 
-      killFeed.unshift({
-        killer: String(msg.killer || '?'),
-        victim: String(msg.victim || '?'),
-        weapon: String(msg.weapon || '').toUpperCase(),
-        head: Boolean(msg.head),
-        isMine: Boolean(msg.isMyKill),
-        at: performance.now()
-      });
-
-      if (killFeed.length > 5) {
-        killFeed.length = 5;
-      }
-
       return;
     }
 
     if (msg.type === 'reset') {
-      killFeed.length = 0;
       stats.kills = 0;
       stats.deaths = 0;
       stats.hits = 0;
@@ -236,38 +221,6 @@
       ctx.stroke();
     }
 
-    while (killFeed.length > 0 && now - killFeed[killFeed.length - 1].at > 4500) {
-      killFeed.pop();
-    }
-
-    if (setting(module, 'Kill Feed', true) && killFeed.length > 0) {
-      let fy = 18;
-      const centerX = AW * 0.5;
-
-      for (const entry of killFeed) {
-        const age = (now - entry.at) / 1000;
-        const alpha = age > 3.7 ? Math.max(0, 1 - (age - 3.7) / 0.8) : 1;
-        const weaponPart = entry.weapon ? ` [${entry.weapon}] ` : ' -> ';
-        const hsPart = entry.head ? ' [HS]' : '';
-        const text = `${entry.killer}${weaponPart}${entry.victim}${hsPart}`;
-
-        setFont(13, true);
-        const twVal = tw(text, 13, true);
-        const boxW = twVal + 18;
-        const boxX = centerX - boxW * 0.5;
-        const accent = entry.isMine ? themed(fy) : [200, 205, 215];
-
-        fillRR(boxX, fy, boxW, 22, 5, [12, 14, 20], 0.72 * alpha, CORNER_TOP | CORNER_BOTTOM);
-        if (entry.isMine) {
-          fillRR(boxX, fy + 4, 3, 14, 1.5, accent, 0.95 * alpha, CORNER_TOP | CORNER_BOTTOM);
-        }
-
-        ctx.fillStyle = rgb(entry.head ? [255, 110, 120] : [240, 244, 250], alpha);
-        ctx.fillText(text, boxX + 9, fy + 4);
-        fy += 26;
-      }
-    }
-
     if (setting(module, 'Session Stats', true)) {
       const width = 205;
       const height = 74;
@@ -302,14 +255,13 @@
 
   register({
     name: 'HitMarker',
-    desc: 'Crosshair hit marker, kill feed, and session K/D & damage stats.',
+    desc: 'Crosshair hit marker and session K/D & damage stats.',
     cat: 'Visual',
     nm: { l: 'hitmarker', ls: 'hit marker', n: 'HitMarker', ns: 'Hit Marker' },
     disp: '',
     settings: [
       { t: 'b', n: 'Crosshair Marker', d: 'Show animated X marker on hit.', v: 1 },
       { t: 'b', n: 'Hit Sound', d: 'Play a crisp tick sound on hit.', v: 0 },
-      { t: 'b', n: 'Kill Feed', d: 'Show recent kills at the top center.', v: 1 },
       { t: 'b', n: 'Session Stats', d: 'Show K/D, headshot %, and damage card.', v: 1 }
     ],
     renderOrder: 7,
