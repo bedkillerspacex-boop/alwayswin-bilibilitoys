@@ -49,6 +49,14 @@
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 40)) || 0));
     const turnSpeed = Math.max(60, Math.min(1000, Number(setting(module, 'Turn Speed', 1000)) || 1000));
 
+    const ignoreSpawn = Boolean(setting(module, 'Ignore Spawn', false));
+    const ignoreSpawnTime = Math.max(0.05, Math.min(1.5, Number(setting(module, 'Ignore Spawn Time', 0.75)) || 0.75));
+    const ignoreSpawnTimeSetting = module.settings.find((entry) => entry.n === 'Ignore Spawn Time');
+
+    if (ignoreSpawnTimeSetting) {
+      ignoreSpawnTimeSetting.vis = Boolean(ignoreSpawn);
+    }
+
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -61,6 +69,8 @@
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       focusAttacker: Boolean(setting(module, 'Focus Attacker', true)),
       deprioritizeSpawn: Boolean(setting(module, 'Deprioritize Spawn', true)),
+      ignoreSpawn,
+      ignoreSpawnTime,
       ads: Boolean(setting(module, 'ADS', false)),
       silentAds: Boolean(setting(module, 'Silent ADS', false))
     };
@@ -140,6 +150,21 @@
       },
       {
         t: 'b',
+        n: 'Ignore Spawn',
+        d: 'Completely ignores newly spawned enemies for a set duration.',
+        v: 0
+      },
+      {
+        t: 'n',
+        n: 'Ignore Spawn Time',
+        d: 'Duration in seconds to ignore newly spawned enemies.',
+        v: 0.75,
+        min: 0.05,
+        max: 1.5,
+        step: 0.05
+      },
+      {
+        t: 'b',
         n: 'ADS',
         d: 'Automatically aim down sights while attacking.',
         v: 0
@@ -192,6 +217,8 @@
       wallCheck: true,
       focusAttacker: true,
       deprioritizeSpawn: true,
+      ignoreSpawn: false,
+      ignoreSpawnTime: 0.75,
       ads: false,
       silentAds: false,
       backtrack: true
@@ -450,6 +477,15 @@
       return bt.findExposedShot(actor, origin, world, range, (base) => pickBestAimPointForBase(base, origin, world));
     }
 
+    function isSpawnIgnored(actor, now = performance.now()) {
+      if (!config.ignoreSpawn || !actor || actor.id == null) {
+        return false;
+      }
+
+      const spawnedAt = spawnedAtMap.get(actor.id);
+      return spawnedAt != null && (now - spawnedAt) < config.ignoreSpawnTime * 1000;
+    }
+
     function isIrcProtected(actor) {
       const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
       return Boolean(irc && typeof irc.isProtected === 'function' && irc.isProtected(actor));
@@ -510,7 +546,7 @@
       const candidates = [];
 
       for (const actor of actors) {
-        if (!bridge.isEnemy(actor, player) || isIrcProtected(actor)) {
+        if (!bridge.isEnemy(actor, player) || isIrcProtected(actor) || isSpawnIgnored(actor, now)) {
           continue;
         }
 
@@ -831,7 +867,7 @@
         return null;
       }
 
-      if (!bridge.isEnemy(target, debug.player) || isIrcProtected(target)) {
+      if (!bridge.isEnemy(target, debug.player) || isIrcProtected(target) || isSpawnIgnored(target)) {
         return null;
       }
 
@@ -882,6 +918,8 @@
         wallCheck: data.wallCheck !== false,
         focusAttacker: data.focusAttacker !== false,
         deprioritizeSpawn: data.deprioritizeSpawn !== false,
+        ignoreSpawn: Boolean(data.ignoreSpawn),
+        ignoreSpawnTime: Math.max(0.05, Math.min(1.5, Number(data.ignoreSpawnTime) || 0.75)),
         ads: Boolean(data.ads),
         silentAds: Boolean(data.silentAds)
       };

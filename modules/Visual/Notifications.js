@@ -59,7 +59,7 @@
     const message = event.detail?.message;
 
     if (message) {
-      add(String(message), 4.5);
+      add(String(message), 7);
     }
   });
 

@@ -143,9 +143,9 @@ function drawWatermark(dt){
   }
   if(hasIcon){
     const iy=py+Math.round((size-iconH)/2);
-    const tinted=tintedAlwaysWin(iconW,iconH,iconC);
     const perfWm=window.SolsticePerf;
     if(glow&&!perfWm){
+      const tinted=tintedAlwaysWin(iconW,iconH,iconC);
       ctx.save();
       ctx.shadowColor=rgb(iconC,0.85*wm.anim); ctx.shadowBlur=size/3;
       ctx.globalAlpha=wm.anim;
@@ -157,6 +157,7 @@ function drawWatermark(dt){
     const shadowTint=tintedAlwaysWin(iconW,iconH,[Math.round(iconC[0]*0.25),Math.round(iconC[1]*0.25),Math.round(iconC[2]*0.25)]);
     ctx.drawImage(shadowTint,px+3.25,iy+3.25,iconW,iconH);
     ctx.globalAlpha=wm.anim;
+    const tinted=tintedAlwaysWin(iconW,iconH,iconC);
     ctx.drawImage(tinted,px,iy,iconW,iconH);
     ctx.restore();
   }

@@ -6,6 +6,70 @@
   const OUTER_ORIGIN = 'https://www.bilibili.com';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
+  const AUDIO_FILES = {
+    Cash: 'cash.wav',
+    Windows: 'windows_background.wav',
+    Mario: 'mariodeath.wav',
+    Fard: 'fard.wav'
+  };
+  let audioCtx = null;
+
+  function playFlagSound(mode, volume) {
+    const vol = Math.max(0, Math.min(1, Number(volume) || 0));
+
+    if (vol <= 0) {
+      return;
+    }
+
+    const file = AUDIO_FILES[mode];
+
+    if (file) {
+      const base = document.documentElement?.getAttribute('data-solstice-audio-base');
+
+      if (base) {
+        const audio = new Audio(`${base}${file}`);
+        audio.volume = vol;
+        audio.play().catch(() => {});
+        return;
+      }
+    }
+
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+
+      if (!Ctx) {
+        return;
+      }
+
+      if (!audioCtx) {
+        audioCtx = new Ctx();
+      }
+
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+
+      const now = audioCtx.currentTime;
+      const notes = mode === 'Chime' ? [880, 1318.5] : [660, 880];
+
+      notes.forEach((freq, idx) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const start = now + idx * 0.09;
+        osc.type = mode === 'Chime' ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.001, start);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, vol * 0.35), start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + 0.17);
+      });
+    } catch {
+
+    }
+  }
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -85,7 +149,18 @@
 
     const module = getMod('AntiCheat');
 
-    if (!module?.on || !setting(module, 'Notify', true)) {
+    if (!module?.on) {
+      return;
+    }
+
+    if (setting(module, 'Flag Sound', true)) {
+      const modeSetting = module.settings.find((entry) => entry.n === 'Sound Mode');
+      const mode = modeSetting?.vals?.[modeSetting.v] || 'Alert';
+      const volume = setting(module, 'Sound Volume', 0.8);
+      playFlagSound(mode, volume);
+    }
+
+    if (!setting(module, 'Notify', true)) {
       return;
     }
 
@@ -115,6 +190,9 @@
       { t: 'b', n: 'High Headshot', d: 'Flag abnormally high headshot hit/kill rate.', v: 1 },
       { t: 'b', n: 'Silent Aim', d: 'Flag shots fired far outside the player view angle.', v: 1 },
       { t: 'b', n: 'Notify', d: 'Show a notification when a cheater is flagged.', v: 1 },
+      { t: 'b', n: 'Flag Sound', d: 'Play a sound when a cheater is flagged.', v: 1 },
+      { t: 'e', n: 'Sound Mode', d: 'The alert sound played when a cheater is flagged.', v: 0, vals: ['Alert', 'Chime', 'Cash', 'Windows', 'Mario', 'Fard'] },
+      { t: 'n', n: 'Sound Volume', d: 'The volume of the alert sound.', v: 0.8, min: 0, max: 1, step: 0.1 },
       { t: 'b', n: 'Ignore Self', d: 'Skip anti-cheat checks on your own player.', v: 1 }
     ],
     onRender: syncConfig,
@@ -195,8 +273,10 @@
           lastPitchFlipAt: 0,
           highSpeedStreak: 0,
           speedSamples: [],
+          fastLandings: [],
           wasGround: null,
           landedAt: 0,
+          landedFromFall: false,
           prevVy: 0,
           instantHops: 0,
           lastHopAt: 0,
@@ -324,30 +404,48 @@
         return;
       }
 
-      if (hSpeed > 11.4) {
+      if (hSpeed > 11.5) {
         rec.highSpeedStreak++;
 
-        if (rec.highSpeedStreak >= 2) {
+        if (rec.highSpeedStreak >= 3) {
           flagPlayer(rec, 'Speed');
         }
       } else {
         rec.highSpeedStreak = 0;
       }
 
-      rec.speedSamples.push({ t: now, s: hSpeed });
+      // Only sample non-sliding ground movement so legit slides (up to 11 m/s)
+      // and jumping/sliding off high ledges (mid-air falls) never false-positive.
+      if (p.ground && !p.sliding) {
+        rec.speedSamples.push({ t: now, s: hSpeed });
 
-      while (rec.speedSamples.length > 0 && now - rec.speedSamples[0].t > 1800) {
-        rec.speedSamples.shift();
-      }
-
-      if (rec.speedSamples.length >= 30) {
-        let sum = 0;
-
-        for (const sample of rec.speedSamples) {
-          sum += sample.s;
+        while (rec.speedSamples.length > 0 && now - rec.speedSamples[0].t > 2500) {
+          rec.speedSamples.shift();
         }
 
-        if (sum / rec.speedSamples.length > 8.35) {
+        if (rec.speedSamples.length >= 45) {
+          let sum = 0;
+
+          for (const sample of rec.speedSamples) {
+            sum += sample.s;
+          }
+
+          if (sum / rec.speedSamples.length > 8.25) {
+            flagPlayer(rec, 'Speed');
+          }
+        }
+      } else if (rec.speedSamples.length > 0 && now - rec.speedSamples[rec.speedSamples.length - 1].t > 2500) {
+        rec.speedSamples.length = 0;
+      }
+
+      if (rec.wasGround === false && p.ground && !p.sliding && hSpeed > 8.35) {
+        rec.fastLandings.push(now);
+
+        while (rec.fastLandings.length > 0 && now - rec.fastLandings[0] > 4000) {
+          rec.fastLandings.shift();
+        }
+
+        if (rec.fastLandings.length >= 4) {
           flagPlayer(rec, 'Speed');
         }
       }
@@ -361,27 +459,29 @@
       if (rec.wasGround !== null) {
         if (!rec.wasGround && p.ground) {
           rec.landedAt = now;
-        } else if (rec.wasGround && !p.ground && p.vy > 4.2) {
-          if (rec.landedAt > 0 && now - rec.landedAt <= 90 && hSpeed >= 4.5) {
+          rec.landedFromFall = rec.prevVy < -2.0;
+        } else if (rec.wasGround && !p.ground && p.vy > 5.0) {
+          if (rec.landedAt > 0 && rec.landedFromFall && now - rec.landedAt <= 75 && hSpeed >= 4.5) {
             rec.instantHops++;
             rec.lastHopAt = now;
-          } else if (now - rec.landedAt > 150) {
+          } else if (now - rec.landedAt > 120) {
             rec.instantHops = 0;
           }
-        } else if (!rec.wasGround && !p.ground && rec.prevVy < -1.0 && p.vy > 4.2 && hSpeed >= 4.5) {
+          rec.landedFromFall = false;
+        } else if (!rec.wasGround && !p.ground && rec.prevVy < -2.5 && p.vy > 5.5 && hSpeed >= 4.5) {
           rec.instantHops++;
           rec.lastHopAt = now;
         }
 
-        if (p.ground && rec.landedAt > 0 && now - rec.landedAt > 160) {
+        if (p.ground && rec.landedAt > 0 && now - rec.landedAt > 120) {
           rec.instantHops = 0;
         }
 
-        if (rec.instantHops > 0 && now - rec.lastHopAt > 3000) {
+        if (rec.instantHops > 0 && now - rec.lastHopAt > 3500) {
           rec.instantHops = 0;
         }
 
-        if (rec.instantHops >= 4) {
+        if (rec.instantHops >= 5) {
           flagPlayer(rec, 'NoJumpDelay');
         }
       }
@@ -469,7 +569,7 @@
           rec.headHits++;
         }
 
-        if (rec.hits >= 8 && rec.headHits / rec.hits >= 0.75) {
+        if (rec.hits >= 25 && rec.headHits / rec.hits >= 0.85) {
           flagPlayer(rec, 'HighHS');
         }
 
@@ -494,7 +594,7 @@
           rec.headKills++;
         }
 
-        if (rec.kills >= 5 && rec.headKills / rec.kills >= 0.80) {
+        if (rec.kills >= 10 && rec.headKills / rec.kills >= 0.90) {
           flagPlayer(rec, 'HighHS');
         }
 
@@ -514,16 +614,16 @@
 
         const xzLen = Math.hypot(Number(event.dx) || 0, Number(event.dz) || 0);
 
-        if (xzLen > 0.35) {
+        if (xzLen > 0.5) {
           const fx = -Math.sin(snapP.yaw);
           const fz = -Math.cos(snapP.yaw);
           const dot = ((event.dx * fx) + (event.dz * fz)) / xzLen;
 
-          if (dot < 0.5) {
+          if (dot < 0.0) {
             const rec = getRecord(event.id, resolveActorName(event.id));
             rec.silentShots++;
 
-            if (rec.silentShots >= 3) {
+            if (rec.silentShots >= 6) {
               flagPlayer(rec, 'SilentAim');
             }
           }
