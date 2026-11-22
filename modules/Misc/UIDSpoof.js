@@ -47,7 +47,7 @@
   function promptCustomUid(module) {
     const current = getStoredCustomUid();
     const input = window.prompt(
-      'Enter custom UID (18-digit number, e.g. 123456789012345678; leave empty to clear):',
+      'Enter custom UID (e.g. toid_v1_k01_RRi_...; leave empty to clear):',
       current
     );
 
@@ -158,13 +158,14 @@
     let originalDescriptor = null;
 
     function randomUID() {
-      const bytes = new Uint8Array(18);
+      const bytes = new Uint8Array(30);
       crypto.getRandomValues(bytes);
-      let value = '';
+      let binary = '';
       for (const byte of bytes) {
-        value += String(byte % 10);
+        binary += String.fromCharCode(byte);
       }
-      return (value[0] === '0' ? '1' : value[0]) + value.slice(1);
+      const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      return `toid_v1_k01_RRi_${encoded}`;
     }
 
     function randomName() {

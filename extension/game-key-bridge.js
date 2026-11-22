@@ -653,6 +653,12 @@
   }
 
   function sendInputState() {
+    const playing = Boolean(active && !uiOpen && window.GH?.G?.state === 'playing');
+    const vel = window.GH?.debug?.player?.vel;
+    const rawSelf = playing ? getRawSelf() : null;
+    const speed = playing && vel ? Math.round(Math.hypot(Number(vel.x) || 0, Number(vel.z) || 0) * 100) / 100 : 0;
+    const serverSpeed = rawSelf ? Math.round(Math.hypot(Number(rawSelf.vx) || 0, Number(rawSelf.vz) || 0) * 100) / 100 : 0;
+
     const state = {
       channel: INPUT_CHANNEL,
       type: 'state',
@@ -661,7 +667,9 @@
       s: active && !uiOpen && physicalS,
       d: active && !uiOpen && physicalD,
       space: active && !uiOpen && physicalSpace,
-      playing: Boolean(active && !uiOpen && window.GH?.G?.state === 'playing')
+      playing,
+      speed,
+      serverSpeed
     };
     const key = JSON.stringify(state);
 

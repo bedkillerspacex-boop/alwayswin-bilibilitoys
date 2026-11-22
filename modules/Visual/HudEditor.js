@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const ELEMENTS = ['Watermark', 'Keystrokes'];
+  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD'];
   let snap = 0;
   let drag = null;
   let wasDragging = false;
@@ -32,6 +32,10 @@
 
     if (!HUD_ELEMENTS.Keystrokes) {
       hudElement('Keystrokes', 100, 100, 140, 140);
+    }
+
+    if (!HUD_ELEMENTS.SpeedHUD) {
+      hudElement('SpeedHUD', 20, 80, 145, 34);
     }
   }
 
