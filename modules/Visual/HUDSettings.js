@@ -58,26 +58,48 @@ function themed(index) {
   const f = angle / seg - si;
   return lerpC(cols[si % cols.length], cols[(si + 1) % cols.length], f);
 }
-let googleFontInjected = false;
+const GOOGLE_FONT_OFFICIAL = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap';
+const GOOGLE_FONT_CN_MIRROR = 'https://fonts.loli.net/css2?family=Inter:wght@400;600;700&display=swap';
+const GOOGLE_FONT_CN_FALLBACK = 'https://fonts.lug.ustc.edu.cn/css2?family=Inter:wght@400;600;700&display=swap';
+let lastGoogleFontHref = '';
+
+function googleFontSourceUrl() {
+  const src = iSet('Font Source');
+  const label = src ? src.vals[src.v] : 'China Mirror';
+  return label === 'Official' ? GOOGLE_FONT_OFFICIAL : GOOGLE_FONT_CN_MIRROR;
+}
 
 function ensureGoogleFont() {
-  if (googleFontInjected || typeof document === 'undefined') {
+  if (typeof document === 'undefined') {
     return;
   }
 
   const head = document.head || document.documentElement;
 
-  if (!head || document.getElementById('solstice-google-font')) {
-    googleFontInjected = true;
+  if (!head) {
     return;
   }
 
-  googleFontInjected = true;
-  const link = document.createElement('link');
-  link.id = 'solstice-google-font';
-  link.rel = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap';
-  head.appendChild(link);
+  const targetHref = googleFontSourceUrl();
+  let link = document.getElementById('solstice-google-font');
+
+  if (!link) {
+    link = document.createElement('link');
+    link.id = 'solstice-google-font';
+    link.rel = 'stylesheet';
+    link.addEventListener('error', () => {
+      if (link.href !== GOOGLE_FONT_CN_FALLBACK && targetHref === GOOGLE_FONT_CN_MIRROR) {
+        link.href = GOOGLE_FONT_CN_FALLBACK;
+        lastGoogleFontHref = GOOGLE_FONT_CN_FALLBACK;
+      }
+    });
+    head.appendChild(link);
+  }
+
+  if (lastGoogleFontHref !== targetHref) {
+    link.href = targetHref;
+    lastGoogleFontHref = targetHref;
+  }
 }
 
 function uiFont() {
@@ -127,6 +149,12 @@ function uiFont() {
 
     if (!module) {
       return;
+    }
+
+    const fontSetting = module.settings.find((item) => item.n === 'Font');
+    const fontSourceSetting = module.settings.find((item) => item.n === 'Font Source');
+    if (fontSourceSetting) {
+      fontSourceSetting.vis = fontSetting?.vals?.[fontSetting.v] === 'Google Font';
     }
 
     const active = Boolean(module.on);
@@ -184,6 +212,7 @@ function uiFont() {
       { t: 'e', n: 'Naming', d: 'The style of the module names.', v: 0, vals: ['lowercase', 'lower spaced', 'Normal', 'Spaced'] },
       { t: 'e', n: 'Theme', d: 'The mode of the interface.', v: 0, vals: ['Trans', 'Bubblegum', 'Watermelon', 'Sunset', 'Poison', 'Custom'] },
       { t: 'e', n: 'Font', d: 'The font of the interface.', v: 0, vals: ['Mojangles', 'Product Sans', 'Google Font'] },
+      { t: 'e', n: 'Font Source', d: 'CDN source for Google Font (Official or China Mirror).', v: 1, vals: ['Official', 'China Mirror'] },
       { t: 'n', n: 'Colors', d: 'The amount of colors in the interface.', v: 3.0, min: 1.0, max: 6.0, step: 1.0 },
       { t: 'c', n: 'Color 1', d: 'The first color of the interface.', v: [255, 0, 0, 255] },
       { t: 'c', n: 'Color 2', d: 'The second color of the interface.', v: [255, 127, 0, 255] },
