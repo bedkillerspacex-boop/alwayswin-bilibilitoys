@@ -46,7 +46,7 @@
 ### 配置系统
 
 - 启动第一步就恢复上次激活的配置（模块开关、全部设置、按键绑定、HUD 坐标）
-- 首次启动自动建立 `Default`，并镜像到 `Downloads/Solstice/Default.cfg`
+- 首次启动自动建立 `Default`，并镜像到 `Downloads/Solstice/Default.solcod`
 - `Config` 面板：Save / Load / Delete / Export / Import / Open Folder，1.2s 自动保存
 - 控制台：`sol("config save main")`、`config load`、`config folder`、`config export`
 

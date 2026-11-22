@@ -6,7 +6,7 @@ const Protocol = globalThis.SolsticeProtocol;
 
 const CFG_TYPE = 'solstice/cfg';
 const CFG_FOLDER = 'Solstice';
-const CFG_EXT = '.cfg';
+const CFG_EXT = '.solcod';
 
 async function toggleForTab(tab) {
   if (!Protocol || !tab?.id) {
