@@ -28,6 +28,7 @@
   let latestRawSnapshot = null;
   let latestRawSnapshotAt = 0;
   let latestSelfId = null;
+  let latestEngine = null;
   let engineSnapshotHooked = false;
 
   function installEngineSnapshotHook() {
@@ -48,6 +49,7 @@
 
         const originalSnapshot = proto.snapshot;
         const wrappedSnapshot = function wrappedBridgeSnapshot(s, ...rest) {
+          latestEngine = this;
           if (s && Array.isArray(s.players)) {
             latestRawSnapshot = s;
             latestRawSnapshotAt = performance.now();
@@ -93,6 +95,19 @@
     }
 
     return snap.players.find((p) => p && p.id === latestSelfId) || null;
+  }
+
+  function getEngineState() {
+    if (!latestEngine || !latestEngine.active) {
+      return null;
+    }
+
+    return {
+      engine: latestEngine,
+      world: latestEngine.world || null,
+      predicted: latestEngine.predicted || null,
+      latestTick: latestRawSnapshot?.tick ?? null
+    };
   }
 
   function installShotTickFix() {
@@ -830,6 +845,7 @@
     getRawSnapshot,
     getRawPlayer,
     getRawSelf,
+    getEngineState,
     worldLineClear,
     worldRayDistance,
     rayAabb,
