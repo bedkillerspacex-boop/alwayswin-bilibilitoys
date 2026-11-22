@@ -366,6 +366,17 @@
         return;
       }
 
+      if (hasManualMove()) {
+        state = 'idle';
+        steerActive = false;
+        steerForward = 0;
+        steerRight = 0;
+        peekPoint = null;
+        targetActor = null;
+        anchor = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
+        return;
+      }
+
       const now = performance.now();
       const eyeY = player.pos.y + (player.e?.h ? player.e.h - 0.16 : 1.62);
       const eye = { x: player.pos.x, y: eyeY, z: player.pos.z };
@@ -511,6 +522,18 @@
       }
 
       const input = context.input;
+      const manualMag = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0);
+
+      if (manualMag > 0.01 || hasManualMove()) {
+        state = 'idle';
+        steerActive = false;
+        steerForward = 0;
+        steerRight = 0;
+        peekPoint = null;
+        targetActor = null;
+        return;
+      }
+
       input.forward = steerForward;
       input.right = steerRight;
 
