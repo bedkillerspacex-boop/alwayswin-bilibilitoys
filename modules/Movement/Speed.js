@@ -144,13 +144,16 @@
       input?.touchDown?.delete('Space');
     }
 
+    const patchedNets = new WeakSet();
+
     function patchNetInput(engine) {
       const net = engine?.net;
 
-      if (!net || typeof net.input !== 'function' || net.input.__solsticeSpeedPatched) {
+      if (!net || typeof net.input !== 'function' || patchedNets.has(net)) {
         return;
       }
 
+      patchedNets.add(net);
       const originalInput = net.input;
       const wrappedInput = function wrappedSpeedInput(input, ...rest) {
         if (enabled && mode === 'SlideHop' && input) {
