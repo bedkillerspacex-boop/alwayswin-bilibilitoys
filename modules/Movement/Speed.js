@@ -141,6 +141,7 @@
       const input = bridge.getGH()?.debug?.input;
       input?.keys?.delete('Space');
       input?.down?.delete('Space');
+      input?.touchDown?.delete('Space');
     }
 
     function player() {
@@ -218,6 +219,8 @@
         const debug = bridge.getGH()?.debug;
         const input = debug?.input;
         const target = debug?.player;
+        const touchForward = Number(input?.touchForward) || 0;
+        const touchRight = Number(input?.touchRight) || 0;
         const moving = Boolean(
           bridge.physicalW ||
           bridge.physicalA ||
@@ -226,7 +229,13 @@
           input?.keys?.has('KeyW') ||
           input?.keys?.has('KeyA') ||
           input?.keys?.has('KeyS') ||
-          input?.keys?.has('KeyD')
+          input?.keys?.has('KeyD') ||
+          input?.keys?.has('ArrowUp') ||
+          input?.keys?.has('ArrowDown') ||
+          input?.keys?.has('ArrowLeft') ||
+          input?.keys?.has('ArrowRight') ||
+          Math.abs(touchForward) > 0.1 ||
+          Math.abs(touchRight) > 0.1
         );
 
         if (!input?.keys || !target?.alive || !moving || bridge.uiOpen) {
@@ -240,6 +249,7 @@
           if (!bridge.physicalSpace) {
             input.keys.delete('Space');
             input.down?.delete('Space');
+            input.touchDown?.delete('Space');
           }
 
           hopPressed = false;
@@ -249,6 +259,7 @@
 
         input.keys.add('Space');
         input.down?.add('Space');
+        input.touchDown?.add('Space');
         hopPressed = true;
         syntheticSpace = true;
         return;

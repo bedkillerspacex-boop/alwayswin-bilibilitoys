@@ -2,6 +2,7 @@
   'use strict';
 
   const GUI_POS_KEY = 'solstice.mobile.guiPos';
+  const FS_POS_KEY = 'solstice.mobile.fsPos';
   const SHORTCUTS_KEY = 'solstice.mobile.shortcuts';
 
   function isMobileDevice() {
@@ -281,10 +282,84 @@
       }
     });
 
+    function isFullscreen() {
+      return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    function toggleFullscreen() {
+      const target = document.documentElement || document.body;
+
+      if (!isFullscreen()) {
+        const req = target.requestFullscreen || target.webkitRequestFullscreen;
+
+        if (typeof req === 'function') {
+          try {
+            const p = req.call(target, { navigationUI: 'hide' });
+            if (p && typeof p.catch === 'function') {
+              p.catch(() => {
+                try {
+                  req.call(target);
+                } catch {
+
+                }
+              });
+            }
+          } catch {
+            try {
+              req.call(target);
+            } catch {
+
+            }
+          }
+        }
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+
+        if (typeof exit === 'function') {
+          try {
+            exit.call(document);
+          } catch {
+
+          }
+        }
+      }
+    }
+
+    const savedFs = readJson(FS_POS_KEY, null);
+    const defaultFsX = Math.max(12, window.innerWidth - 142);
+
+    const fsBtn = makeDraggableButton({
+      text: 'FS',
+      initialX: Number.isFinite(savedFs?.x) ? savedFs.x : defaultFsX,
+      initialY: Number.isFinite(savedFs?.y) ? savedFs.y : defaultY,
+      isGui: true,
+      onTap: () => {
+        toggleFullscreen();
+      },
+      onMoveEnd: (x, y) => {
+        writeJson(FS_POS_KEY, { x, y });
+      }
+    });
+
+    function syncFsStyle() {
+      const active = isFullscreen();
+      fsBtn.btn.style.background = active ? 'rgba(109, 40, 217, 0.86)' : 'rgba(24, 18, 42, 0.84)';
+      fsBtn.btn.style.borderColor = active ? 'rgba(196, 181, 253, 0.95)' : 'rgba(167, 139, 250, 0.85)';
+      fsBtn.btn.textContent = active ? 'EXIT FS' : 'FS';
+    }
+
+    document.addEventListener('fullscreenchange', syncFsStyle);
+    document.addEventListener('webkitfullscreenchange', syncFsStyle);
+    syncFsStyle();
+
     window.addEventListener('resize', () => {
       guiBtn.applyPos(
         Number.isFinite(readJson(GUI_POS_KEY, null)?.x) ? readJson(GUI_POS_KEY, null).x : window.innerWidth - 76,
         Number.isFinite(readJson(GUI_POS_KEY, null)?.y) ? readJson(GUI_POS_KEY, null).y : 14
+      );
+      fsBtn.applyPos(
+        Number.isFinite(readJson(FS_POS_KEY, null)?.x) ? readJson(FS_POS_KEY, null).x : Math.max(12, window.innerWidth - 142),
+        Number.isFinite(readJson(FS_POS_KEY, null)?.y) ? readJson(FS_POS_KEY, null).y : 14
       );
       for (const item of shortcuts) {
         const entry = buttonMap.get(item.name);
