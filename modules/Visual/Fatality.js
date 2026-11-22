@@ -729,7 +729,7 @@
     settings: [
       { t: 'b', n: 'Play on inject', d: 'Plays the splash when the interface loads.', v: 1 },
       { t: 'b', n: 'Open Gui', d: 'Opens the ClickGui when the splash ends.', v: 1 },
-      { t: 'e', n: 'Word', d: 'The word shown in the splash.', v: 0, vals: ['FATALITY', 'SOLSTICE', 'GOLDEN HOUR', 'BRUTAL', 'PERFECT'] },
+      { t: 'e', n: 'Word', d: 'The word shown in the splash.', v: 0, vals: ['FATALITY', 'ALWAYSWIN', 'GOLDEN HOUR', 'BRUTAL', 'PERFECT'] },
       { t: 'n', n: 'Speed', d: 'The playback speed of the splash.', v: 1.0, min: 0.25, max: 3.0, step: 0.05 },
       { t: 'n', n: 'Blur Strength', d: 'The blur applied to the game during the splash.', v: 14.0, min: 0.0, max: 40.0, step: 0.5 },
       { t: 'n', n: 'Dim', d: 'The darkening applied to the game.', v: 0.53, min: 0.0, max: 0.95, step: 0.01 },
