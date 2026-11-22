@@ -1,3 +1,69 @@
+function modName(m) {
+  const st = namingStyle();
+  const k = ['l', 'ls', 'n', 'ns'][st] || 'ns';
+  let v = m.nm[k] || m.nm.ns || m.name;
+  if (st <= 1) v = v.toLowerCase();
+  return v;
+}
+
+const THEMES = {
+  Trans: [[91, 206, 250], [245, 169, 184], [255, 255, 255], [245, 169, 184]],
+  Bubblegum: [[255, 99, 202], [255, 195, 195], [146, 245, 255], [249, 255, 148], [135, 255, 176]],
+  Watermelon: [[255, 70, 70], [139, 0, 0], [144, 238, 144], [34, 139, 34], [204, 255, 204]],
+  Sunset: [[213, 32, 0], [239, 118, 39], [255, 154, 86], [255, 255, 255], [209, 98, 164], [181, 86, 144]],
+  Poison: [[115, 222, 70], [67, 201, 89], [41, 230, 94], [12, 210, 83], [87, 211, 72], [57, 210, 124]],
+  Custom: []
+};
+const THEME_NAMES = ['Trans', 'Bubblegum', 'Watermelon', 'Sunset', 'Poison', 'Custom'];
+
+function iSet(n) {
+  const im = BY_NAME['HUDSettings'];
+  return im && im.settings.find((s) => s.n === n);
+}
+
+function namingStyle() {
+  const s = iSet('Naming');
+  return s ? s.v : 3;
+}
+function themeName() {
+  const s = iSet('Theme');
+  return s ? THEME_NAMES[s.v] || 'Sunset' : 'Sunset';
+}
+function colorSpeed() {
+  const s = iSet('Color Speed');
+  return s ? s.v : 3;
+}
+function saturation() {
+  const s = iSet('Saturation');
+  return s ? s.v : 1;
+}
+function customColors() {
+  const im = BY_NAME['HUDSettings'];
+  const cnt = (im?.settings.find((s) => s.n === 'Colors') || { v: 3 }).v;
+  const out = [];
+  for (let i = 1; i <= cnt; i++) {
+    const s = im?.settings.find((x) => x.n === 'Color ' + i);
+    if (s) out.push(s.v.slice(0, 3));
+  }
+  return out.length ? out : [[255, 255, 255]];
+}
+function themed(index) {
+  const th = themeName();
+  const cols = th === 'Custom' ? customColors() : THEMES[th] || THEMES.Sunset;
+  if (!cols.length) return [255, 255, 255];
+  const time = 10000 / colorSpeed();
+  const angle = (Math.floor(NOW_MS) + Math.floor(index)) % Math.max(1, Math.floor(time));
+  const seg = time / cols.length;
+  const si = Math.floor(angle / seg);
+  const f = angle / seg - si;
+  return lerpC(cols[si % cols.length], cols[(si + 1) % cols.length], f);
+}
+function uiFont() {
+  const f = iSet('Font');
+  const v = f ? f.vals[f.v] || 'Product Sans' : 'Product Sans';
+  return v === 'Mojangles' ? 'Mojangles' : 'Product Sans';
+}
+
 (() => {
   'use strict';
 
@@ -77,17 +143,39 @@
 
   register({
     name: 'HUDSettings',
-    desc: 'Controls FPS cap, DPR scaling, and blur limits for all plugin visual elements.',
+    desc: 'Customize theme, typography, FPS caps, DPR scaling, and visual performance limits.',
     cat: 'Visual',
     nm: { l: 'hudsettings', ls: 'hud settings', n: 'HUDSettings', ns: 'HUD Settings' },
     disp: 'Max Visual FPS',
     defaultOn: true,
     settings: [
+      { t: 'e', n: 'Naming', d: 'The style of the module names.', v: 0, vals: ['lowercase', 'lower spaced', 'Normal', 'Spaced'] },
+      { t: 'e', n: 'Theme', d: 'The mode of the interface.', v: 0, vals: ['Trans', 'Bubblegum', 'Watermelon', 'Sunset', 'Poison', 'Custom'] },
+      { t: 'e', n: 'Font', d: 'The font of the interface.', v: 0, vals: ['Mojangles', 'Product Sans'] },
+      { t: 'n', n: 'Colors', d: 'The amount of colors in the interface.', v: 3.0, min: 1.0, max: 6.0, step: 1.0 },
+      { t: 'c', n: 'Color 1', d: 'The first color of the interface.', v: [255, 0, 0, 255] },
+      { t: 'c', n: 'Color 2', d: 'The second color of the interface.', v: [255, 127, 0, 255] },
+      { t: 'c', n: 'Color 3', d: 'The third color of the interface.', v: [255, 214, 0, 255] },
+      { t: 'c', n: 'Color 4', d: 'The fourth color of the interface.', v: [0, 255, 0, 255] },
+      { t: 'c', n: 'Color 5', d: 'The fifth color of the interface.', v: [0, 0, 255, 255] },
+      { t: 'c', n: 'Color 6', d: 'The sixth color of the interface.', v: [139, 0, 255, 255] },
+      { t: 'n', n: 'Color Speed', d: 'The speed of the color change.', v: 3.0, min: 0.01, max: 20.0, step: 0.01 },
+      { t: 'n', n: 'Saturation', d: 'The saturation of the interface.', v: 1.0, min: 0.0, max: 1.0, step: 0.01 },
+      { t: 'b', n: 'Slot Easing', d: 'Eases the selection of slots.', v: 1 },
+      { t: 'n', n: 'Easing Speed', d: 'The speed of the slot easing.', v: 20.0, min: 0.1, max: 20.0, step: 0.01 },
       { t: 'n', n: 'Max Visual FPS', d: 'Max redraw rate for parent HUD elements when GUI is closed.', v: 60, min: 15, max: 144, step: 5 },
-      { t: 'n', n: 'Overlay FPS', d: 'Max redraw rate for in-game ESP and NameTags overlays.', v: 60, min: 15, max: 144, step: 5 },
+      { t: 'n', n: 'Overlay FPS', d: 'Max redraw rate for in-game ESP, NameTags, and Backtrack overlays.', v: 60, min: 15, max: 144, step: 5 },
       { t: 'n', n: 'Max DPR', d: 'Cap canvas pixel ratio to reduce GPU fill-rate on high-DPI screens.', v: 1.5, min: 0.75, max: 2.0, step: 0.25 },
       { t: 'b', n: 'Reduce Blur', d: 'Skip heavy background blur filters while in-game.', v: 1 }
     ],
+    onInit(m) {
+      const th = m.settings.find((s) => s.n === 'Theme');
+      if (th) th.v = 3;
+      const nm = m.settings.find((s) => s.n === 'Naming');
+      if (nm) nm.v = 3;
+      const ft = m.settings.find((s) => s.n === 'Font');
+      if (ft) ft.v = 1;
+    },
     onRender: syncSettings,
     onEnable() {
       lastSentKey = '';

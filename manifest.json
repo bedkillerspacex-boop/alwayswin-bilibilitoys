@@ -70,7 +70,6 @@
         "modules/Visual/Watermark.js",
         "modules/Visual/ClickGuiFatality.js",
         "modules/Visual/ClickGui.js",
-        "modules/Visual/Interface.js",
         "modules/Visual/HudEditor.js",
         "modules/Visual/HUDSettings.js",
         "modules/Visual/Arraylist.js",
