@@ -243,9 +243,10 @@
           return;
         }
 
-        const online = document.body.classList.contains('online-session');
+        const engineState = typeof bridge.getEngineState === 'function' ? bridge.getEngineState() : null;
+        const grounded = Boolean(target.e?.onGround || engineState?.predicted?.ground);
 
-        if (!target.e?.onGround || hopPressed || (online && bridge.latestOnlineJumpHeld)) {
+        if (!grounded) {
           if (!bridge.physicalSpace) {
             input.keys.delete('Space');
             input.down?.delete('Space');
