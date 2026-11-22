@@ -64,6 +64,8 @@ function buildModules(){
 
 function setModuleOn(mod,enabled){
   if(!mod) return;
+  if(window.__alwayswinKicked&&enabled) return;
+  if(mod.locked&&!enabled&&!window.__alwayswinKicked) return;
   const next=Boolean(enabled);
   if(mod.on===next) return;
   mod.on=next;

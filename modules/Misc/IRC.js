@@ -40,6 +40,7 @@
   let currentRoomId = '';
   let currentPlayerId = '';
   let latestPeers = [];
+  let kickedOut = false;
 
   function getServerOrigin() {
     try {
@@ -154,6 +155,40 @@
         return;
       }
 
+      if (msg?.type === 'kicked') {
+        kickedOut = true;
+        window.__alwayswinKicked = true;
+        sessionToken = '';
+        closeOuterSocket();
+        closeLoginModal();
+
+        if (typeof MODS !== 'undefined' && Array.isArray(MODS)) {
+          for (const m of MODS) {
+            if (m.on && typeof setModuleOn === 'function') {
+              setModuleOn(m, false);
+            }
+          }
+        }
+
+        if (typeof S !== 'undefined') {
+          S.open = false;
+          S.hudEditor = false;
+        }
+
+        lastSentKey = '';
+        syncConfig();
+
+        try {
+          document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
+            detail: { message: '[IRC] 已被管理员踢出，插件功能已禁用' }
+          }));
+        } catch {
+
+        }
+
+        return;
+      }
+
       if (msg?.type === 'peers' && Array.isArray(msg.peers)) {
         latestPeers = msg.peers;
         lastSentKey = '';
@@ -172,7 +207,7 @@
       latestPeers = [];
       ws = null;
 
-      if (sessionToken && !wsReconnect) {
+      if (sessionToken && !kickedOut && !wsReconnect) {
         wsReconnect = setTimeout(() => {
           wsReconnect = 0;
           connectOuterSocket();
@@ -206,11 +241,17 @@
     const module = typeof getMod === 'function' ? getMod('IRC') : null;
 
     if (module) {
+      if (!kickedOut && !window.__alwayswinKicked && !module.on) {
+        module.on = true;
+      }
+
       const reLoginEntry = module.settings.find((s) => s.n === 'Re-Login');
 
       if (reLoginEntry && reLoginEntry.v) {
         reLoginEntry.v = 0;
-        openLoginModal();
+        if (!kickedOut && !window.__alwayswinKicked) {
+          openLoginModal();
+        }
       }
     }
 
@@ -220,7 +261,7 @@
       channel: CHANNEL,
       type: 'config',
       module: 'irc',
-      enabled: Boolean(sessionToken),
+      enabled: Boolean(sessionToken && !kickedOut && !window.__alwayswinKicked),
       connected: wsConnected,
       protectIrc,
       playerId: currentPlayerId,
@@ -440,10 +481,11 @@
 
   register({
     name: 'IRC',
-    desc: 'Connects to Solstice IRC network; protects IRC users by default.',
+    desc: 'Connects to AlwaysWin IRC network (always on); protects IRC users by default.',
     cat: 'Misc',
     nm: { l: 'irc', ls: 'irc', n: 'IRC', ns: 'IRC' },
     disp: '',
+    locked: true,
     defaultOn: true,
     settings: [
       { t: 'b', n: 'Protect IRC', d: 'Do not attack IRC users who also have Protect IRC enabled.', v: 1 },
@@ -495,7 +537,27 @@
 
     const peersById = new Map();
 
+    function syncRoomFromEngine() {
+      const eng = bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
+      if (!eng) {
+        return;
+      }
+      const nextRoomId = eng.room?.id != null
+        ? String(eng.room.id)
+        : eng.room?.code != null
+          ? String(eng.room.code)
+          : eng.room?.roomId != null
+            ? String(eng.room.roomId)
+            : '';
+      const nextPlayerId = eng.net?.id != null ? String(eng.net.id) : '';
+      if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
+        currentRoomId = nextRoomId;
+        currentPlayerId = nextPlayerId;
+      }
+    }
+
     function postRoomToParent() {
+      syncRoomFromEngine();
       try {
         window.parent.postMessage(
           {
@@ -530,7 +592,7 @@
           if (typeof proto.setRoom === 'function' && !proto.setRoom.__solsticeIrcPatched) {
             const origSetRoom = proto.setRoom;
             const wrappedSetRoom = function wrappedIrcSetRoom(room, ...rest) {
-              const nextRoomId = room?.id != null ? String(room.id) : room?.code != null ? String(room.code) : '';
+              const nextRoomId = room?.id != null ? String(room.id) : room?.code != null ? String(room.code) : room?.roomId != null ? String(room.roomId) : '';
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : '';
 
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
@@ -549,7 +611,7 @@
           if (typeof proto.snapshot === 'function' && !proto.snapshot.__solsticeIrcPatched) {
             const origSnapshot = proto.snapshot;
             const wrappedSnapshot = function wrappedIrcSnapshot(s, ...rest) {
-              const nextRoomId = this.room?.id != null ? String(this.room.id) : this.room?.code != null ? String(this.room.code) : currentRoomId;
+              const nextRoomId = this.room?.id != null ? String(this.room.id) : this.room?.code != null ? String(this.room.code) : this.room?.roomId != null ? String(this.room.roomId) : currentRoomId;
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : currentPlayerId;
 
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
