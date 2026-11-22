@@ -3,12 +3,36 @@
 
   const CHANNEL = 'solstice-uidspoof';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const CUSTOM_UID_STORAGE_KEY = 'solstice.uidspoof.customUid';
   const HEARTBEAT_MS = 500;
+  let lastSentKey = '';
   let lastSentAt = 0;
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
     return;
+  }
+
+  function getStoredCustomUid() {
+    try {
+      return String(localStorage.getItem(CUSTOM_UID_STORAGE_KEY) || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  function setStoredCustomUid(value) {
+    try {
+      const clean = String(value || '').trim();
+
+      if (clean) {
+        localStorage.setItem(CUSTOM_UID_STORAGE_KEY, clean);
+      } else {
+        localStorage.removeItem(CUSTOM_UID_STORAGE_KEY);
+      }
+    } catch {
+
+    }
   }
 
   function findGameFrame() {
@@ -20,37 +44,85 @@
     return null;
   }
 
+  function promptCustomUid(module) {
+    const current = getStoredCustomUid();
+    const input = window.prompt(
+      'Enter custom UID (18-digit number, e.g. 123456789012345678; leave empty to clear):',
+      current
+    );
+
+    if (input === null) {
+      return;
+    }
+
+    const clean = input.trim();
+    setStoredCustomUid(clean);
+
+    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
+    if (modeSetting && clean) {
+      modeSetting.v = 1;
+    } else if (modeSetting && !clean && modeSetting.v === 1) {
+      modeSetting.v = 0;
+    }
+
+    lastSentKey = '';
+    lastSentAt = 0;
+  }
+
   function syncConfig() {
     const module = getMod('UIDSpoof');
     if (!module) {
       return;
     }
+
+    const setBtn = module.settings.find((entry) => entry.n === 'Set Custom UID');
+    if (setBtn && setBtn.v) {
+      setBtn.v = 0;
+      promptCustomUid(module);
+    }
+
+    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'Custom' ? 'Custom' : 'Random';
+    const customUid = getStoredCustomUid();
+    module.disp = mode === 'Custom' && customUid ? customUid.slice(-6) : mode;
+
     const now = performance.now();
-    if (now - lastSentAt < HEARTBEAT_MS) {
+    const payload = {
+      channel: CHANNEL,
+      type: 'config',
+      enabled: Boolean(module.on),
+      mode,
+      customUid
+    };
+    const key = JSON.stringify(payload);
+
+    if (key === lastSentKey && now - lastSentAt < HEARTBEAT_MS) {
       return;
     }
+
     const frame = findGameFrame();
     if (!frame?.contentWindow) {
       return;
     }
-    frame.contentWindow.postMessage({
-      channel: CHANNEL,
-      type: 'config',
-      enabled: Boolean(module.on)
-    }, GAME_ORIGIN);
+    frame.contentWindow.postMessage(payload, GAME_ORIGIN);
+    lastSentKey = key;
     lastSentAt = now;
   }
 
   register({
     name: 'UIDSpoof',
-    desc: 'Sends a random online UID while enabled',
+    desc: 'Sends a random or custom online UID while enabled',
     cat: 'Misc',
     nm: { l: 'uidspoof', ls: 'uid spoof', n: 'UIDSpoof', ns: 'UID Spoof' },
     disp: '',
-    settings: [],
+    settings: [
+      { t: 'e', n: 'Mode', d: 'Random generates an 18-digit UID; Custom uses your configured UID.', v: 0, vals: ['Random', 'Custom'] },
+      { t: 'b', n: 'Set Custom UID', d: 'Click to enter a custom UID (18-digit number).', v: 0 }
+    ],
     onRender: syncConfig,
     defaultOn: false,
     onEnable() {
+      lastSentKey = '';
       lastSentAt = 0;
       syncConfig();
     }
@@ -75,6 +147,8 @@
     const state = {
       enabled: false,
       used: false,
+      mode: 'Random',
+      customUid: '',
       uid: '',
       name: ''
     };
@@ -104,7 +178,7 @@
     }
 
     function freshIdentity() {
-      state.uid = randomUID();
+      state.uid = state.mode === 'Custom' && state.customUid ? state.customUid : randomUID();
       state.name = randomName();
     }
 
@@ -255,10 +329,18 @@
         return;
       }
       const wasEnabled = state.enabled;
+      const prevMode = state.mode;
+      const prevCustomUid = state.customUid;
       state.enabled = Boolean(data.enabled);
+      state.mode = data.mode === 'Custom' ? 'Custom' : 'Random';
+      state.customUid = typeof data.customUid === 'string' ? data.customUid.trim() : '';
+
       if (!wasEnabled && state.enabled) {
         freshIdentity();
+      } else if (state.enabled && (prevMode !== state.mode || prevCustomUid !== state.customUid)) {
+        state.uid = state.mode === 'Custom' && state.customUid ? state.customUid : randomUID();
       }
+
       if (wasEnabled && !state.enabled && state.used) {
         setTimeout(() => location.reload(), 100);
       }
