@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Indicators', 'Arraylist'];
+  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Indicators', 'Arraylist', 'TargetHUD', 'SessionStats'];
   let snap = 0;
   let drag = null;
   let wasDragging = false;
@@ -44,6 +44,14 @@
 
     if (!HUD_ELEMENTS.Arraylist) {
       hudElement('Arraylist', Math.max(0, (W / K) - 220), 5, 210, 120);
+    }
+
+    if (!HUD_ELEMENTS.TargetHUD) {
+      hudElement('TargetHUD', Math.round((W / K) * 0.5 + 32), Math.round((H / K) * 0.5 - 33), 220, 66);
+    }
+
+    if (!HUD_ELEMENTS.SessionStats) {
+      hudElement('SessionStats', 20, 210, 205, 74);
     }
   }
 

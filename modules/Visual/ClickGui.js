@@ -70,6 +70,37 @@ function drawClickGui(dt){
       mod.cAnim=clamp(animate(mod.showSettings?1:0,mod.cAnim,dt*12.5),0,1);
 
       if(mod.cAnim>0.001){
+        const hasVisibleSettings=mod.settings.some(s=>s.vis);
+        const bindDrawRow=(label,valueText,tipText,onClick,isLastRow)=>{
+          moduleY=lerp(moduleY,moduleY+T,mod.cAnim);
+          const rb=isLastRow&&endMod?15:0;
+          let rRect={x:cp.x,y:catRect.y+CAT_H+moduleY+(isLastRow?-2*a:0),w:cp.x+CAT_W,h:catRect.y+CAT_H+moduleY+T};
+          rRect.y=Math.floor(rRect.y);
+          if(rRect.y<modRect.y) rRect.y=modRect.y;
+          if(rRect.y>catRect.y+0.5){
+            fillRR(rRect.x,rRect.y,rRect.w-rRect.x,rRect.h-rRect.y,rb,[30,30,30],a,CORNER_BOTTOM);
+            if(inside(gmx,gmy,rRect)&&isOpen&&cp.extended){
+              tooltip=tipText;
+              if(S.clicked[0]&&!S.picker&&mod.showSettings){
+                onClick();
+              }
+            }
+            const cY=rRect.y+((rRect.h-rRect.y)-TH)/2;
+            const rgbC=themed(moduleY*2);
+            text(rRect.x+5,cY,label,[255,255,255],a,true,false,16);
+            const valW=tw(valueText,16,false);
+            text(rRect.w-5-valW,cY,valueText,rgbC,a,false,false,16);
+          }
+        };
+
+        const bindLabel=S.binding===mod?'Press key...':(window.SolsticeKeys?.keyLabel?.(mod.key)||'NONE');
+        bindDrawRow('Bind',bindLabel,'Click to bind a key (ESC to clear).',()=>{ S.binding=mod; },false);
+        const modeLabel=mod.bindMode==='hold'?'Hold':'Toggle';
+        bindDrawRow('Bind Mode',modeLabel,'Switch between Toggle and Hold keybind mode.',()=>{
+          mod.bindMode=mod.bindMode==='hold'?'toggle':'hold';
+          window.Solstice?.saveModuleBind?.(mod);
+        },!S.isMobile&&!hasVisibleSettings);
+
         if(S.isMobile){
           moduleY=lerp(moduleY,moduleY+T,mod.cAnim);
           let bRect={x:cp.x,y:catRect.y+CAT_H+moduleY,w:cp.x+CAT_W,h:catRect.y+CAT_H+moduleY+T};

@@ -65,6 +65,25 @@
 
         Object.defineProperty(wrappedSnapshot, '__solsticeBridgeSnapshotHooked', { value: true });
         proto.snapshot = wrappedSnapshot;
+
+        if (typeof proto.pause === 'function' && !proto.pause.__solsticeNoPausePatched) {
+          const originalPause = proto.pause;
+          const wrappedPause = function wrappedSolsticePause(...args) {
+            if (uiOpen) {
+              try {
+                this.input?.unlock?.();
+              } catch {
+
+              }
+              return;
+            }
+
+            return originalPause.apply(this, args);
+          };
+
+          Object.defineProperty(wrappedPause, '__solsticeNoPausePatched', { value: true });
+          proto.pause = wrappedPause;
+        }
       })
       .catch(() => {
         engineSnapshotHooked = false;
@@ -1016,6 +1035,23 @@
     } else if (event.code === 'KeyD') {
       physicalD = false;
     }
+
+    if (active && event.code && event.code !== 'Insert' && event.code !== 'Escape') {
+      try {
+        window.parent.postMessage({
+          channel: KEY_CHANNEL,
+          type: 'up',
+          code: event.code,
+          key: event.key || '',
+          ctrl: Boolean(event.ctrlKey),
+          alt: Boolean(event.altKey),
+          shift: Boolean(event.shiftKey),
+          meta: Boolean(event.metaKey)
+        }, PARENT_ORIGIN);
+      } catch {
+
+      }
+    }
   }, true);
   window.addEventListener('mousedown', (event) => {
     if (event.button === 0) {
@@ -1068,6 +1104,33 @@
       }
     } else if (event.button === 2) {
       physicalRmb = false;
+    }
+
+    if (guardMouse && active) {
+      const code = event.button === 1
+        ? 'Mouse3'
+        : event.button === 3
+          ? 'Mouse4'
+          : event.button === 4
+            ? 'Mouse5'
+            : '';
+
+      if (code) {
+        try {
+          window.parent.postMessage({
+            channel: KEY_CHANNEL,
+            type: 'up',
+            code,
+            key: code,
+            ctrl: Boolean(event.ctrlKey),
+            alt: Boolean(event.altKey),
+            shift: Boolean(event.shiftKey),
+            meta: Boolean(event.metaKey)
+          }, PARENT_ORIGIN);
+        } catch {
+
+        }
+      }
     }
   }, true);
   window.addEventListener('blur', resetRuntime);

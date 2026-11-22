@@ -422,13 +422,16 @@
       }
     }
 
+    const hookedGfx = new WeakSet();
+
     function installRenderHook() {
       const gfx = bridge.getGH()?.debug?.gfx;
 
-      if (!gfx || typeof gfx.render !== 'function' || gfx.render.__solsticeDamagePopupsWrapped) {
+      if (!gfx || typeof gfx.render !== 'function' || hookedGfx.has(gfx) || gfx.render.__solsticeDamagePopupsWrapped) {
         return;
       }
 
+      hookedGfx.add(gfx);
       const originalRender = gfx.render;
       const wrappedRender = function wrappedDamagePopupsRender(...args) {
         const result = originalRender.apply(this, args);

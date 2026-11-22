@@ -413,8 +413,10 @@
     const binds = {};
 
     for (const mod of MODS) {
-      if (mod.key) {
-        binds[mod.name] = mod.key;
+      if (mod.key || mod.bindMode === 'hold') {
+        binds[mod.name] = mod.bindMode === 'hold'
+          ? { key: mod.key || 0, mode: 'hold' }
+          : mod.key;
       }
     }
 
@@ -424,11 +426,17 @@
   function loadBinds() {
     const binds = readJson(BIND_KEY, {});
 
-    for (const [name, key] of Object.entries(binds)) {
+    for (const [name, entry] of Object.entries(binds)) {
       const mod = moduleByName(name);
 
       if (mod) {
-        mod.key = key;
+        if (entry && typeof entry === 'object') {
+          mod.key = entry.key || 0;
+          mod.bindMode = entry.mode === 'hold' ? 'hold' : 'toggle';
+        } else {
+          mod.key = entry || 0;
+          mod.bindMode = 'toggle';
+        }
       }
     }
   }
@@ -491,12 +499,51 @@
       }
 
       if (keyMatches(mod.key, bind)) {
-        setModuleOn(mod, !mod.on);
+        if (mod.bindMode === 'hold') {
+          if (!mod.on) {
+            setModuleOn(mod, true);
+          }
+        } else {
+          setModuleOn(mod, !mod.on);
+        }
         fired = true;
       }
     }
 
     return fired;
+  }
+
+  function releaseBound(bind) {
+    if (!bind || bind === 'Insert' || bind === 'Escape') {
+      return false;
+    }
+
+    if (S.open || S.hudEditor || S.binding || S.bindBool) {
+      return false;
+    }
+
+    const parsed = splitBind(bind);
+
+    if (!parsed) {
+      return false;
+    }
+
+    let released = false;
+
+    for (const mod of MODS) {
+      if (mod.name === 'ClickGui' || mod.bindMode !== 'hold' || !mod.key || !mod.on) {
+        continue;
+      }
+
+      const modParsed = splitBind(mod.key);
+
+      if (modParsed && modParsed.code === parsed.code) {
+        setModuleOn(mod, false);
+        released = true;
+      }
+    }
+
+    return released;
   }
 
   function commandHelp(name) {
@@ -806,6 +853,30 @@
     }
   }, true);
 
+  window.addEventListener('keyup', (event) => {
+    if (S.open || S.hudEditor || S.binding || S.bindBool) {
+      return;
+    }
+
+    if (releaseBound(bindFromEvent(event))) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
+  window.addEventListener('mouseup', (event) => {
+    if (S.open || S.hudEditor || S.binding || S.bindBool) {
+      return;
+    }
+
+    const bind = mouseBindFromEvent(event);
+
+    if (bind && releaseBound(bind)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
   window.addEventListener('message', (event) => {
     if (event.origin !== GAME_ORIGIN || !isGameSource(event.source)) {
       return;
@@ -835,6 +906,17 @@
         /* 游戏 iframe 已经吞掉了事件，这里不需要额外操作 */
         return;
       }
+    }
+
+    if (data.channel === 'solstice-key' && data.type === 'up') {
+      const mods = {
+        ctrl: Boolean(data.ctrl),
+        alt: Boolean(data.alt),
+        shift: Boolean(data.shift),
+        meta: Boolean(data.meta)
+      };
+      const bind = joinBind(mods, normalizeCode(data.code || data.key));
+      releaseBound(bind);
     }
   });
 

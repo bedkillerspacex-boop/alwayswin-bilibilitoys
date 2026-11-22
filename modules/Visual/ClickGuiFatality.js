@@ -63,7 +63,16 @@ function ftFit(text, px, bold, max) {
 
 /* 模块在 Fatality 面板里显示的行（第一个是 Visible，做成标题栏上的眼睛） */
 function ftRows(mod) {
-  return mod.settings.filter((setting, index) => index > 0 && setting.vis);
+  const rows = [
+    { t: 'bind', n: 'Bind' },
+    { t: 'bindMode', n: 'Bind Mode' }
+  ];
+  for (let i = 1; i < mod.settings.length; i++) {
+    if (mod.settings[i].vis) {
+      rows.push(mod.settings[i]);
+    }
+  }
+  return rows;
 }
 
 /* 眼睛图标：直接画，别指望图标字体里有对应字形 */
@@ -393,6 +402,27 @@ function drawFtRow(mod, setting, x, y, w, dt, gmx, gmy) {
 
   setFont(10, false);
   text(labelX, y + 8, ftFit(setting.n, 10, false, labelW), hover ? FTC.labelHover : FTC.label, 0.92, false, false, 10);
+
+  if (setting.t === 'bind') {
+    const val = S.binding === mod ? 'Press key...' : (window.SolsticeKeys?.keyLabel?.(mod.key) || 'NONE');
+    const vw = tw(val, 10, false);
+    text(rightX - vw, y + 8, val, S.binding === mod ? FTC.accent : FTC.labelHover, 0.95, false, false, 10);
+    if (hover && S.clicked[0]) {
+      S.binding = mod;
+    }
+    return;
+  }
+
+  if (setting.t === 'bindMode') {
+    const val = mod.bindMode === 'hold' ? 'Hold' : 'Toggle';
+    const vw = tw(val, 10, false);
+    text(rightX - vw, y + 8, val, FTC.accent, 0.95, false, false, 10);
+    if (hover && S.clicked[0]) {
+      mod.bindMode = mod.bindMode === 'hold' ? 'toggle' : 'hold';
+      window.Solstice?.saveModuleBind?.(mod);
+    }
+    return;
+  }
 
   /* ── 布尔 ── */
   if (setting.t === 'b') {

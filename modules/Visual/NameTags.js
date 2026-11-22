@@ -56,6 +56,8 @@
       enemies: Boolean(setting(module, 'Show Enemies', true)),
       health: Boolean(setting(module, 'Show Health', true)),
       distance: Boolean(setting(module, 'Show Distance', true)),
+      weapon: Boolean(setting(module, 'Show Weapon', true)),
+      reload: Boolean(setting(module, 'Show Reload', true)),
       scale: Math.max(0.6, Math.min(2, Number(setting(module, 'Scale', 1)) || 1))
     };
     const key = JSON.stringify(config);
@@ -87,6 +89,8 @@
       { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 1 },
       { t: 'b', n: 'Show Health', d: 'Show health bar under the name tag.', v: 1 },
       { t: 'b', n: 'Show Distance', d: 'Show distance in meters next to the name.', v: 1 },
+      { t: 'b', n: 'Show Weapon', d: 'Show current weapon icon on name tags.', v: 1 },
+      { t: 'b', n: 'Show Reload', d: 'Show reloading indicator when a player is reloading.', v: 1 },
       { t: 'n', n: 'Scale', d: 'Text scale multiplier.', v: 1.0, min: 0.6, max: 2.0, step: 0.05 }
     ],
     onRender: syncConfig,
@@ -125,6 +129,8 @@
       enemies: true,
       health: true,
       distance: true,
+      weapon: true,
+      reload: true,
       scale: 1
     };
 
@@ -257,7 +263,42 @@
         const height = overlayHeight;
         const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
         const anticheat = typeof bridge.getFeature === 'function' ? bridge.getFeature('anticheat') : null;
+        const rawSnap = bridge.getRawSnapshot?.();
+        const snapById = new Map();
+        if (Array.isArray(rawSnap?.players)) {
+          for (const sp of rawSnap.players) {
+            if (sp && sp.id != null) {
+              snapById.set(String(sp.id), sp);
+            }
+          }
+        }
         const fontSize = Math.round(13 * config.scale);
+
+        function drawWeaponIcon(weapon, ix, iy, sc, iconColor) {
+          overlayCtx.save();
+          overlayCtx.translate(ix, iy);
+          overlayCtx.scale(sc, sc);
+          overlayCtx.fillStyle = iconColor;
+          if (weapon === 'pistol') {
+            overlayCtx.fillRect(0, 2, 11, 3);
+            overlayCtx.fillRect(1, 5, 3, 5);
+          } else if (weapon === 'smg') {
+            overlayCtx.fillRect(0, 2, 13, 3.5);
+            overlayCtx.fillRect(2, 5.5, 2.5, 4);
+            overlayCtx.fillRect(7, 5.5, 2, 4.5);
+          } else if (weapon === 'shotgun') {
+            overlayCtx.fillRect(0, 2.5, 16, 2.5);
+            overlayCtx.fillRect(4, 5, 6, 2);
+            overlayCtx.fillRect(0, 4.5, 3.5, 3.5);
+          } else {
+            // ar / default rifle
+            overlayCtx.fillRect(0, 2.5, 16, 3);
+            overlayCtx.fillRect(2, 5.5, 2.5, 4);
+            overlayCtx.fillRect(7, 5.5, 2.5, 4.5);
+            overlayCtx.fillRect(13, 1.5, 3, 1.5);
+          }
+          overlayCtx.restore();
+        }
 
         overlayCtx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
         overlayCtx.textAlign = 'center';
@@ -311,26 +352,56 @@
           const sy = (-point.y * 0.5 + 0.5) * height;
           const baseName = actor.name || (isFriend ? 'Teammate' : 'Enemy');
           const distMeters = Math.round(Math.hypot(actor.pos.x - player.pos.x, actor.pos.y - player.pos.y, actor.pos.z - player.pos.z));
+          const snapP = actor.id != null ? snapById.get(String(actor.id)) : null;
+          const weaponName = snapP?.weapon || actor.weapon || '';
+          const isReloading = Boolean(snapP && snapP.reload > 0);
           const acInfo = anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
           const acTag = acInfo ? `[CHEATER: ${acInfo.reasons.join('/')}] ` : '';
           const namePart = `${acTag}${ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName}`;
           const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
           const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : (isFriend || isSelf) ? FRIEND_COLOR : ENEMY_COLOR;
           const padX = 6 * config.scale;
+          const iconW = config.weapon && weaponName ? 18 * config.scale : 0;
+          const rldText = config.reload && isReloading ? 'RLD' : '';
+          const rldW = rldText ? (overlayCtx.measureText(rldText).width + 8 * config.scale) : 0;
           const barH = config.health ? Math.max(2, Math.round(3 * config.scale)) : 0;
           const boxH = fontSize + 6 * config.scale + (barH ? barH + 2 : 0);
           const textW = overlayCtx.measureText(label).width;
-          const boxW = Math.max(textW + padX * 2, 42 * config.scale);
+          const contentW = textW + (iconW ? iconW + 4 * config.scale : 0) + (rldW ? rldW + 4 * config.scale : 0);
+          const boxW = Math.max(contentW + padX * 2, 42 * config.scale);
           const boxX = sx - boxW * 0.5;
           const boxY = sy - boxH * 0.5;
+          const centerY = boxY + (fontSize + 6 * config.scale) * 0.5 + 0.5;
 
           overlayCtx.fillStyle = 'rgba(10, 12, 18, 0.72)';
           overlayCtx.fillRect(boxX, boxY, boxW, boxH);
           overlayCtx.strokeStyle = color;
           overlayCtx.lineWidth = 1;
           overlayCtx.strokeRect(boxX, boxY, boxW, boxH);
+
+          let cursorX = boxX + padX;
+          if (iconW > 0) {
+            drawWeaponIcon(weaponName, cursorX, centerY - 5 * config.scale, config.scale, color);
+            cursorX += iconW + 4 * config.scale;
+          }
+
+          overlayCtx.save();
+          overlayCtx.textAlign = 'left';
           overlayCtx.fillStyle = color;
-          overlayCtx.fillText(label, sx, boxY + (fontSize + 6 * config.scale) * 0.5 + 0.5);
+          overlayCtx.fillText(label, cursorX, centerY);
+          overlayCtx.restore();
+          cursorX += textW;
+
+          if (rldW > 0) {
+            const rx = cursorX + 4 * config.scale;
+            const rh = fontSize + 2 * config.scale;
+            const ry = centerY - rh * 0.5;
+            overlayCtx.fillStyle = 'rgba(245, 158, 11, 0.28)';
+            overlayCtx.fillRect(rx, ry, rldW, rh);
+            overlayCtx.fillStyle = '#fbbf24';
+            overlayCtx.fillText(rldText, rx + rldW * 0.5, centerY);
+          }
+
           hadContent = true;
 
           if (config.health) {
@@ -355,13 +426,16 @@
       }
     }
 
+    const hookedGfx = new WeakSet();
+
     function installRenderHook() {
       const gfx = bridge.getGH()?.debug?.gfx;
 
-      if (!gfx || typeof gfx.render !== 'function' || gfx.render.__solsticeNameTagsWrapped) {
+      if (!gfx || typeof gfx.render !== 'function' || hookedGfx.has(gfx) || gfx.render.__solsticeNameTagsWrapped) {
         return;
       }
 
+      hookedGfx.add(gfx);
       const originalRender = gfx.render;
       const wrappedRender = function wrappedNameTagsRender(...args) {
         const result = originalRender.apply(this, args);
@@ -406,6 +480,8 @@
         enemies: data.enemies !== false,
         health: data.health !== false,
         distance: data.distance !== false,
+        weapon: data.weapon !== false,
+        reload: data.reload !== false,
         scale: Math.max(0.6, Math.min(2, Number(data.scale) || 1))
       };
 
