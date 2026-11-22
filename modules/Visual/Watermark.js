@@ -14,6 +14,40 @@ sevenImg.addEventListener('load',()=>{
 loadSeven();
 sevenTimer=setInterval(loadSeven,500);
 
+const awImg=new Image();
+let awTimer=0;
+let awTintCanvas=null;
+let awTintKey='';
+function loadAlwaysWin(){
+  const src=document.documentElement?.getAttribute('data-solstice-alwayswin')||'';
+  if(src&&awImg.src!==src){
+    awImg.src=src;
+  }
+}
+awImg.addEventListener('load',()=>{
+  if(awTimer){clearInterval(awTimer);awTimer=0;}
+  awTintKey='';
+});
+loadAlwaysWin();
+awTimer=setInterval(loadAlwaysWin,500);
+
+function tintedAlwaysWin(w,h,c){
+  const key=`${w}x${h}:${c[0]},${c[1]},${c[2]}`;
+  if(awTintCanvas&&awTintKey===key) return awTintCanvas;
+  if(!awTintCanvas) awTintCanvas=document.createElement('canvas');
+  awTintCanvas.width=w;
+  awTintCanvas.height=h;
+  const g=awTintCanvas.getContext('2d');
+  g.clearRect(0,0,w,h);
+  g.drawImage(awImg,0,0,w,h);
+  g.globalCompositeOperation='source-in';
+  g.fillStyle=rgb(c,1);
+  g.fillRect(0,0,w,h);
+  g.globalCompositeOperation='source-over';
+  awTintKey=key;
+  return awTintCanvas;
+}
+
 function sevenGlow(width){
   const radius=width*.525;
   const thickness=100;
@@ -51,10 +85,11 @@ function drawWatermark(dt){
   wm.anim=clamp(animate(wm.on?1:0,wm.anim,dt*10),0,1);
   if(wm.anim<0.01){ ctx.restore(); return; }
   const layout=hudElement('Watermark',20,20,200,45);
+  hudApplyScale(layout);
   const px=lerp(layout.x-220,layout.x,wm.anim), py=lerp(layout.y-220,layout.y,wm.anim);
 
   const stS=wm.settings.find(s=>s.n==='Style');
-  const style=stS?(stS.vals[stS.v]||'Solstice'):'Solstice';
+  const style=stS?(stS.vals[stS.v]||'AlwaysWin'):'AlwaysWin';
 
   if(style==='7 Days'){
     if(sevenImg.complete&&sevenImg.naturalWidth){
@@ -81,13 +116,36 @@ function drawWatermark(dt){
 
   const glowS=wm.settings.find(s=>s.n==='Glow');
   const glow=glowS?glowS.v===1:true;
-  const text='solstice', size=45;
-  const chars=[]; let x=px;
+  const text='alwayswin', size=45;
+  const hasIcon=awImg.complete&&awImg.naturalWidth>0&&awImg.naturalHeight>0;
+  const iconH=hasIcon?Math.round(size*0.92):0;
+  const iconW=hasIcon?Math.max(1,Math.round(iconH*(awImg.naturalWidth/awImg.naturalHeight))):0;
+  const iconGap=hasIcon?10:0;
+  const iconC=themed(0);
+  const chars=[]; let x=px+iconW+iconGap;
   setFont(size,true);
   for(let i=0;i<text.length;i++){
-    const ch=text[i], c=themed(i*100);
+    const ch=text[i], c=themed((i+1)*100);
     chars.push({ch,x,c,w:tw(ch,size,true)});
     x+=tw(ch,size,true);
+  }
+  if(hasIcon){
+    const iy=py+Math.round((size-iconH)/2);
+    const tinted=tintedAlwaysWin(iconW,iconH,iconC);
+    if(glow){
+      ctx.save();
+      ctx.shadowColor=rgb(iconC,0.85*wm.anim); ctx.shadowBlur=size/3;
+      ctx.globalAlpha=wm.anim;
+      ctx.drawImage(tinted,px,iy,iconW,iconH);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.globalAlpha=0.925*wm.anim;
+    const shadowTint=tintedAlwaysWin(iconW,iconH,[Math.round(iconC[0]*0.25),Math.round(iconC[1]*0.25),Math.round(iconC[2]*0.25)]);
+    ctx.drawImage(shadowTint,px+3.25,iy+3.25,iconW,iconH);
+    ctx.globalAlpha=wm.anim;
+    ctx.drawImage(tinted,px,iy,iconW,iconH);
+    ctx.restore();
   }
   if(glow){
     ctx.save();
@@ -151,7 +209,7 @@ register({
   nm:{l:"watermark",ls:"water mark",n:"Watermark",ns:"Watermark"},
   disp:"Style",
   settings:[
-    {t:"e",n:"Style",d:"The style of the watermark.",v:0,vals:["Solstice","7 Days"]},
+    {t:"e",n:"Style",d:"The style of the watermark.",v:0,vals:["AlwaysWin","7 Days"]},
     {t:"b",n:"Glow",d:"Enables glow",v:1}
   ],
   renderOrder:2,

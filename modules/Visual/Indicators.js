@@ -64,6 +64,7 @@
     const layout = hudElement('Indicators', 20, 124, width, height);
     layout.w = width;
     layout.h = height;
+    hudApplyScale(layout);
 
     const accent = useColor ? themed(layout.x + layout.y * 2) : [255, 255, 255];
 

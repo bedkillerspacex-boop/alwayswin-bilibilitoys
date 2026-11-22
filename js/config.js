@@ -21,7 +21,7 @@
   const HUD_KEY = 'solstice.hud.layout';
 
   const DEFAULT_NAME = 'Default';
-  const FOLDER = 'Solstice';
+  const FOLDER = 'AlwaysWin';
   const AUTOSAVE_MS = 1200;
   const MIRROR_MS = 4000;
   const BRIDGE_TIMEOUT = 5000;
@@ -69,7 +69,7 @@
     }
 
     try {
-      console.log('%c[Solstice]', 'color:#ff5fa2;font-weight:bold', message);
+      console.log('%c[AlwaysWin]', 'color:#ff5fa2;font-weight:bold', message);
     } catch {
 
     }
@@ -511,7 +511,7 @@
       const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${sanitizeName(name) || DEFAULT_NAME}.solcod`;
+      link.download = `${sanitizeName(name) || DEFAULT_NAME}.alwayswin`;
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
@@ -527,7 +527,7 @@
     const clean = sanitizeName(name) || active();
     const body = fileBody(clean);
     const ok = downloadBlob(clean, body);
-    notify(ok ? `Exported ${clean}.solcod` : 'Export failed.');
+    notify(ok ? `Exported ${clean}.alwayswin` : 'Export failed.');
     return ok;
   }
 
@@ -536,7 +536,7 @@
       try {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.solcod,.cfg,.json,application/json,text/plain';
+        input.accept = '.alwayswin,.solcod,.cfg,.json,application/json,text/plain';
         input.style.display = 'none';
 
         input.addEventListener('change', async () => {
@@ -551,7 +551,7 @@
           try {
             const text = await file.text();
             const parsed = JSON.parse(text);
-            const name = sanitizeName(parsed?.name) || sanitizeName(file.name.replace(/\.(solcod|cfg)$/i, '')) || DEFAULT_NAME;
+            const name = sanitizeName(parsed?.name) || sanitizeName(file.name.replace(/\.(alwayswin|solcod|cfg)$/i, '')) || DEFAULT_NAME;
 
             if (!applySnapshot(parsed)) {
               throw new Error('no modules');
@@ -710,7 +710,7 @@
         writeFile(active());
       }, 3000);
     } catch (error) {
-      console.warn('[Solstice] config boot failed', error);
+      console.warn('[AlwaysWin] config boot failed', error);
     }
   }
 

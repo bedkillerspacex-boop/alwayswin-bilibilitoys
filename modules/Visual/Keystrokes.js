@@ -71,6 +71,7 @@
     ctx.save();
     ctx.scale(K, K);
     const layout = hudElement('Keystrokes', 100, 100, 140, 140);
+    hudApplyScale(layout);
     const x = layout.x;
     const y = layout.y;
     const size = 40;

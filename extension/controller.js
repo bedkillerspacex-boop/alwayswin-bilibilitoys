@@ -73,6 +73,10 @@
     if (root && !root.hasAttribute('data-solstice-seven')) {
       root.setAttribute('data-solstice-seven', chrome.runtime.getURL('assets/img/seven_days.png'));
     }
+
+    if (root && !root.hasAttribute('data-solstice-alwayswin')) {
+      root.setAttribute('data-solstice-alwayswin', chrome.runtime.getURL('assets/img/alwayswin.png'));
+    }
   }
 
   function emitUiEvent(type) {

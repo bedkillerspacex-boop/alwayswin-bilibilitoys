@@ -5,8 +5,8 @@ importScripts('/extension/protocol.js');
 const Protocol = globalThis.SolsticeProtocol;
 
 const CFG_TYPE = 'solstice/cfg';
-const CFG_FOLDER = 'Solstice';
-const CFG_EXT = '.solcod';
+const CFG_FOLDER = 'AlwaysWin';
+const CFG_EXT = '.alwayswin';
 
 async function toggleForTab(tab) {
   if (!Protocol || !tab?.id) {

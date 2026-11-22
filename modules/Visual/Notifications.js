@@ -55,6 +55,14 @@
     add(`${detail.name} was ${detail.enabled ? 'enabled' : 'disabled'}`, 3);
   });
 
+  document.addEventListener('solstice:anticheat-flag', (event) => {
+    const message = event.detail?.message;
+
+    if (message) {
+      add(String(message), 4.5);
+    }
+  });
+
   function draw(dt) {
     const module = getMod('Notifications');
 

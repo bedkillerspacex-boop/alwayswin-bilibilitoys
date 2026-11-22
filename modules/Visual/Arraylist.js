@@ -23,6 +23,10 @@ function drawArrayList(dt){
   const FS=25;
   ctx.save(); ctx.scale(K,K);
   const AW=W/K, gmx=S.mx/K, gmy=S.my/K;
+  const layout=hudElement('Arraylist',Math.max(0,AW-220),5,210,120);
+  const sc=hudApplyScale(layout);
+  const lmx=layout.x+(gmx-layout.x)/sc, lmy=layout.y+(gmy-layout.y)/sc;
+  const rightEdge=layout.x+layout.w;
 
   const list=MODS.filter(m=>modVisible(m)&&(!bound||m.key!==0));
   const prepared=list.map(m=>{
@@ -32,19 +36,23 @@ function drawArrayList(dt){
     return {m,name,disp,w:tw(name,FS,true)+(disp?tw(disp,FS,true):0)};
   }).sort((a,b)=>b.w-a.w);
 
-  let y=5, rows=[];
+  let y=layout.y, rows=[], maxRowW=0;
   for(const p of prepared){
     const m=p.m;
     if(m.animList<0.01) continue;
     const color=themed(y*2);
     const nameW=tw(p.name,FS,true), suffW=p.disp?tw(p.disp,FS,true):0;
-    let tx=AW-10;
+    const totalW=nameW+suffW+16;
+    if(totalW>maxRowW) maxRowW=totalW;
+    let tx=rightEdge-10;
     if(mode==='Bar'||mode==='Split') tx-=7;
-    tx=lerp(AW+14,tx-nameW-suffW,m.animList);
+    tx=lerp(rightEdge+14,tx-nameW-suffW,m.animList);
     rows.push({m,name:p.name,suff:p.disp,color,tx,nameW,suffW,y,anim:m.animList,
       rect:{x:tx-3,y:y,w:tx+nameW+suffW+4,h:y+FS}});
     y+=FS*m.animList;
   }
+  const totalH=Math.max(FS,y-layout.y);
+  hudSetSize('Arraylist',Math.max(120,Math.ceil(maxRowW)),Math.ceil(totalH));
 
   for(const r of rows){
     const rect=r.rect;
@@ -71,12 +79,11 @@ function drawArrayList(dt){
       ctx.fillRect(rect.w-2,r.y,4,FS); ctx.restore();
     }
 
-    if(gmx>=rect.x&&gmx<=rect.w&&gmy>=r.y&&gmy<r.y+FS){
+    if(lmx>=rect.x&&lmx<=rect.w&&lmy>=r.y&&lmy<r.y+FS){
       fillRR(rect.x,rect.y,rect.w-rect.x,FS,0,[255,255,255],0.1,0);
       if(S.clicked[0]&&!S.picker&&!r.m.__clicked){ setModuleOn(r.m,!r.m.on); r.m.__clicked=true; }
     }
   }
-  ctx.restore();
 
   if(mode==='Outline'&&rows.length){
     ctx.lineWidth=2;

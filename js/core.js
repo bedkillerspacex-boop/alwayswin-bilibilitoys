@@ -169,14 +169,25 @@ try{
 
 function hudElement(name,defX,defY,w,h){
   const stored=HUD_LAYOUT[name]||{};
-  const x=Number(stored.x),y=Number(stored.y);
+  const x=Number(stored.x),y=Number(stored.y),sc=Number(stored.scale);
   const element={
     x:Number.isFinite(x)?x:defX,
     y:Number.isFinite(y)?y:defY,
-    w,h
+    w,h,
+    scale:Number.isFinite(sc)&&sc>0?clamp(sc,0.4,3):1
   };
   HUD_ELEMENTS[name]=element;
   return element;
+}
+
+function hudApplyScale(element){
+  const sc=element&&Number.isFinite(element.scale)&&element.scale>0?element.scale:1;
+  if(sc!==1){
+    ctx.translate(element.x,element.y);
+    ctx.scale(sc,sc);
+    ctx.translate(-element.x,-element.y);
+  }
+  return sc;
 }
 
 function hudSetSize(name,w,h){

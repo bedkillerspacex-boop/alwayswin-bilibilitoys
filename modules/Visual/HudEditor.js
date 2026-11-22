@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Indicators'];
+  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Indicators', 'Arraylist'];
   let snap = 0;
   let drag = null;
   let wasDragging = false;
@@ -41,19 +41,36 @@
     if (!HUD_ELEMENTS.Indicators) {
       hudElement('Indicators', 20, 124, 205, 58);
     }
+
+    if (!HUD_ELEMENTS.Arraylist) {
+      hudElement('Arraylist', Math.max(0, (W / K) - 220), 5, 210, 120);
+    }
+  }
+
+  function elementScale(element) {
+    return element && Number.isFinite(element.scale) && element.scale > 0 ? element.scale : 1;
   }
 
   function drawBox(name, element, active) {
     const color = active ? themed(0) : [255, 255, 255];
     const alpha = active ? 0.9 : 0.55;
+    const sc = elementScale(element);
+    const sw = element.w * sc;
+    const sh = element.h * sc;
 
     ctx.strokeStyle = rgb(color, alpha);
     ctx.lineWidth = 1;
-    ctx.strokeRect(element.x, element.y, element.w, element.h);
+    ctx.strokeRect(element.x, element.y, sw, sh);
+
+    // Bottom-left resize handle
+    const handleSize = 8;
+    ctx.fillStyle = rgb(color, active ? 0.95 : 0.75);
+    ctx.fillRect(element.x, element.y + sh - handleSize, handleSize, handleSize);
 
     setFont(14, false);
     ctx.fillStyle = rgb(color, alpha);
-    ctx.fillText(name, element.x + 4, element.y + 4);
+    const label = sc !== 1 ? `${name} (${sc.toFixed(2)}x)` : name;
+    ctx.fillText(label, element.x + 4, element.y + 4);
   }
 
   function draw(dt) {
@@ -102,15 +119,42 @@
       for (const name of ELEMENTS) {
         const element = HUD_ELEMENTS[name];
 
+        if (!element) {
+          continue;
+        }
+
+        const sc = elementScale(element);
+        const sw = element.w * sc;
+        const sh = element.h * sc;
+        const handleHit = 14;
+
         if (
-          element &&
-          mx >= element.x &&
-          mx <= element.x + element.w &&
-          my >= element.y &&
-          my <= element.y + element.h
+          mx >= element.x - 4 &&
+          mx <= element.x + handleHit &&
+          my >= element.y + sh - handleHit &&
+          my <= element.y + sh + 4
         ) {
           drag = {
             name,
+            mode: 'resize',
+            anchorRight: element.x + sw,
+            anchorTop: element.y,
+            baseW: Math.max(20, element.w),
+            baseH: Math.max(16, element.h)
+          };
+          wasDragging = true;
+          break;
+        }
+
+        if (
+          mx >= element.x &&
+          mx <= element.x + sw &&
+          my >= element.y &&
+          my <= element.y + sh
+        ) {
+          drag = {
+            name,
+            mode: 'move',
             dx: mx - element.x,
             dy: my - element.y
           };
@@ -124,17 +168,29 @@
       const element = HUD_ELEMENTS[drag.name];
 
       if (element) {
-        let x = mx - drag.dx;
-        let y = my - drag.dy;
+        const sc = elementScale(element);
 
-        if (snap > 0) {
-          x = Math.round(x / snap) * snap;
-          y = Math.round(y / snap) * snap;
+        if (drag.mode === 'resize') {
+          const reqW = drag.anchorRight - mx;
+          const reqH = my - drag.anchorTop;
+          const nextScale = clamp(Math.max(reqW / drag.baseW, reqH / drag.baseH), 0.4, 3.0);
+          const nextW = drag.baseW * nextScale;
+          element.scale = Math.round(nextScale * 100) / 100;
+          element.x = clamp(drag.anchorRight - nextW, 0, Math.max(0, AW - nextW));
+          HUD_LAYOUT[drag.name] = { x: element.x, y: element.y, scale: element.scale };
+        } else {
+          let x = mx - drag.dx;
+          let y = my - drag.dy;
+
+          if (snap > 0) {
+            x = Math.round(x / snap) * snap;
+            y = Math.round(y / snap) * snap;
+          }
+
+          element.x = clamp(x, 0, Math.max(0, AW - element.w * sc));
+          element.y = clamp(y, 0, Math.max(0, AH - element.h * sc));
+          HUD_LAYOUT[drag.name] = { x: element.x, y: element.y, scale: sc };
         }
-
-        element.x = clamp(x, 0, Math.max(0, AW - element.w));
-        element.y = clamp(y, 0, Math.max(0, AH - element.h));
-        HUD_LAYOUT[drag.name] = { x: element.x, y: element.y };
       }
     } else if (drag && !S.down[0]) {
       drag = null;

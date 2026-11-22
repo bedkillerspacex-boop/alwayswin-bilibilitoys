@@ -256,6 +256,7 @@
         const width = overlayWidth;
         const height = overlayHeight;
         const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
+        const anticheat = typeof bridge.getFeature === 'function' ? bridge.getFeature('anticheat') : null;
         const fontSize = Math.round(13 * config.scale);
 
         overlayCtx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
@@ -310,9 +311,11 @@
           const sy = (-point.y * 0.5 + 0.5) * height;
           const baseName = actor.name || (isFriend ? 'Teammate' : 'Enemy');
           const distMeters = Math.round(Math.hypot(actor.pos.x - player.pos.x, actor.pos.y - player.pos.y, actor.pos.z - player.pos.z));
-          const namePart = ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName;
+          const acInfo = !isSelf && anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
+          const acTag = acInfo ? `[CHEATER: ${acInfo.reasons.join('/')}] ` : '';
+          const namePart = `${acTag}${ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName}`;
           const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
-          const color = ircInfo ? IRC_COLOR : isFriend ? FRIEND_COLOR : ENEMY_COLOR;
+          const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : isFriend ? FRIEND_COLOR : ENEMY_COLOR;
           const padX = 6 * config.scale;
           const barH = config.health ? Math.max(2, Math.round(3 * config.scale)) : 0;
           const boxH = fontSize + 6 * config.scale + (barH ? barH + 2 : 0);

@@ -1,4 +1,4 @@
-# Solstice — GoldenHour
+# AlwaysWin — GoldenHour
 
 适用于 [GoldenHour](https://www.bilibili.com/toy/golden-hour/index.html) 网页小游戏的浏览器扩展（Chrome / Edge，Manifest V3）。
 纯前端实现，面板用 Canvas 自绘，跑在游戏页面的 MAIN world 里。
@@ -16,8 +16,8 @@
 | Combat | AimBot、TriggerBot、Aura、NoRecoil、**InfiniteAmmo 无限子弹** |
 | Movement | Sprint、NoJumpDelay、**Speed 加速**、**NoSlowdown 无减速** |
 | Player | AntiAim（含 Derp Mode 陀螺）、CustomName |
-| Visual | ESP、Arraylist、Watermark、ClickGui（Sol / Fatality 双风格）、HudEditor、Keystrokes、Notifications、Fatality 注入动画、ThirdPerson 第三人称 |
-| Misc | Config 配置面板、InputGuard 输入守卫、UnLock、ToggleSounds |
+| Visual | ESP、NameTags、BulletTracers、DamagePopups、Arraylist、Watermark、ClickGui（Sol / Fatality 双风格）、HudEditor（支持拖拽与左下角缩放）、Keystrokes、Notifications、Fatality 注入动画、ThirdPerson 第三人称 |
+| Misc | Config 配置面板、AntiCheat 反作弊标记、InputGuard 输入守卫、UnLock、ToggleSounds、KillSound |
 
 ### ClickGui 风格
 
@@ -46,7 +46,7 @@
 ### 配置系统
 
 - 启动第一步就恢复上次激活的配置（模块开关、全部设置、按键绑定、HUD 坐标）
-- 首次启动自动建立 `Default`，并镜像到 `Downloads/Solstice/Default.solcod`
+- 首次启动自动建立 `Default`，并镜像到 `Downloads/AlwaysWin/Default.alwayswin`
 - `Config` 面板：Save / Load / Delete / Export / Import / Open Folder，1.2s 自动保存
 - 控制台：`sol("config save main")`、`config load`、`config folder`、`config export`
 

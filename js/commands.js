@@ -882,7 +882,7 @@
   if (!window.__solsticeConsoleHint) {
     window.__solsticeConsoleHint = true;
     console.log(
-      '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main")',
+      '%c[AlwaysWin]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main")',
       'color:#ff5fa2;font-weight:bold',
       'color:inherit'
     );

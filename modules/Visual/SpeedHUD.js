@@ -108,6 +108,7 @@
     const layout = hudElement('SpeedHUD', 20, 80, width, height);
     layout.w = width;
     layout.h = height;
+    hudApplyScale(layout);
 
     const accent = useColor ? themed(layout.x + layout.y * 3) : [255, 255, 255];
 
