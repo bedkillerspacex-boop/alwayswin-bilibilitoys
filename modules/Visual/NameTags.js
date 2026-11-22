@@ -270,7 +270,7 @@
 
           const isSelf = actor === player;
           const isFriend = !isSelf && Number(actor.team) === Number(player.team);
-          const ircInfo = !isSelf && irc && typeof irc.getIrcInfo === 'function' ? irc.getIrcInfo(actor) : null;
+          const ircInfo = irc && typeof irc.getIrcInfo === 'function' ? irc.getIrcInfo(actor) : null;
 
           if (isSelf && !config.local) {
             continue;
@@ -311,11 +311,11 @@
           const sy = (-point.y * 0.5 + 0.5) * height;
           const baseName = actor.name || (isFriend ? 'Teammate' : 'Enemy');
           const distMeters = Math.round(Math.hypot(actor.pos.x - player.pos.x, actor.pos.y - player.pos.y, actor.pos.z - player.pos.z));
-          const acInfo = !isSelf && anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
+          const acInfo = anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
           const acTag = acInfo ? `[CHEATER: ${acInfo.reasons.join('/')}] ` : '';
           const namePart = `${acTag}${ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName}`;
           const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
-          const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : isFriend ? FRIEND_COLOR : ENEMY_COLOR;
+          const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : (isFriend || isSelf) ? FRIEND_COLOR : ENEMY_COLOR;
           const padX = 6 * config.scale;
           const barH = config.health ? Math.max(2, Math.round(3 * config.scale)) : 0;
           const boxH = fontSize + 6 * config.scale + (barH ? barH + 2 : 0);

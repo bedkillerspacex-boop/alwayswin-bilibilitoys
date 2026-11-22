@@ -490,6 +490,7 @@
     let protectIrc = true;
     let currentRoomId = '';
     let currentPlayerId = '';
+    let selfIrcName = '';
     let enginePatched = false;
 
     const peersById = new Map();
@@ -577,6 +578,7 @@
       enabled = Boolean(data.enabled);
       connected = Boolean(data.connected);
       protectIrc = data.protectIrc !== false;
+      selfIrcName = String(data.ircName || '');
 
       if (data.playerId) {
         currentPlayerId = String(data.playerId);
@@ -602,7 +604,24 @@
       bridge.provide('irc', {
         isEnabled: () => enabled && connected,
         isIrcUser: (actor) => Boolean(actor && actor.id != null && peersById.has(String(actor.id))),
-        getIrcInfo: (actor) => (actor && actor.id != null ? peersById.get(String(actor.id)) || null : null),
+        getIrcInfo: (actor) => {
+          if (!actor || actor.id == null) {
+            return null;
+          }
+
+          const id = String(actor.id);
+          const peer = peersById.get(id);
+
+          if (peer) {
+            return peer;
+          }
+
+          if (enabled && connected && selfIrcName && currentPlayerId && id === currentPlayerId) {
+            return { ircName: selfIrcName, protect: protectIrc };
+          }
+
+          return null;
+        },
         isProtected: (actor) => {
           if (!enabled || !protectIrc || !actor || actor.id == null) {
             return false;
