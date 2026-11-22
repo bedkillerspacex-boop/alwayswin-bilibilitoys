@@ -156,29 +156,37 @@
       patchedNets.add(net);
       const originalInput = net.input;
       const wrappedInput = function wrappedSpeedInput(input, ...rest) {
-        if (enabled && mode === 'SlideHop' && input) {
+        if (enabled && input) {
           const moving = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0) > 0.01;
           let buttons = input.buttons | 0;
 
-          if (moving && !(buttons & 8)) {
-            buttons |= 2; // SPRINT
-          }
-
-          if (!serverState.ground) {
-            buttons &= ~1; // release JUMP in air so jumpHeld resets before landing
-          } else if (moving) {
-            if (!serverState.sliding && !serverState.crouch && serverState.slideCooldown <= 0 && serverState.speed > 5.2) {
-              buttons |= 16; // trigger server 1.3x slide boost
+          if (mode === 'LegitHop') {
+            if (!serverState.ground) {
+              buttons &= ~1;
+            } else if (moving) {
+              buttons |= 1;
+            }
+          } else if (mode === 'SlideHop') {
+            if (moving && !(buttons & 8)) {
+              buttons |= 2; // SPRINT
             }
 
-            if (serverState.sliding) {
-              buttons |= 1; // hop while carrying boosted slide velocity
-            }
-          }
+            if (!serverState.ground) {
+              buttons &= ~1; // release JUMP in air so jumpHeld resets before landing
+            } else if (moving) {
+              if (!serverState.sliding && !serverState.crouch && serverState.slideCooldown <= 0 && serverState.speed > 5.2) {
+                buttons |= 16; // trigger server 1.3x slide boost
+              }
 
-          // Cancel slide right before speed drops below sprint speed (7.5 m/s)
-          if (serverState.sliding && serverState.slideTime > 0.28 && serverState.speed <= 7.6) {
-            buttons |= 4; // CROUCH cancels slide cleanly and starts 0.4s cooldown early
+              if (serverState.sliding) {
+                buttons |= 1; // hop while carrying boosted slide velocity
+              }
+            }
+
+            // Cancel slide right before speed drops below sprint speed (7.5 m/s)
+            if (serverState.sliding && serverState.slideTime > 0.28 && serverState.speed <= 7.6) {
+              buttons |= 4; // CROUCH cancels slide cleanly and starts 0.4s cooldown early
+            }
           }
 
           if (buttons !== input.buttons) {
@@ -251,8 +259,27 @@
       }
     });
 
+    bridge.onWorldMove((context) => {
+      if (!enabled || mode !== 'LegitHop' || !context?.input) {
+        return;
+      }
+
+      const input = context.input;
+      const moving = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0) > 0.01;
+      let buttons = Number(input.buttons) || 0;
+
+      if (!context.motion?.ground) {
+        buttons &= ~1;
+      } else if (moving) {
+        buttons = context.motion?.jumpHeld ? (buttons & ~1) : (buttons | 1);
+      }
+
+      input.buttons = buttons;
+      context.localInput = input;
+    }, 20);
+
     bridge.onBeforePlayerUpdate(() => {
-      if (!enabled || mode !== 'LegitHop') {
+      if (!enabled || mode !== 'LegitHop' || document.body.classList.contains('online-session')) {
         releaseSpace();
         return;
       }

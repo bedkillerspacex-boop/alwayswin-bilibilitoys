@@ -117,6 +117,24 @@
       }
     });
 
+    bridge.onWorldMove((context) => {
+      if (!enabled || !context?.input) {
+        return;
+      }
+
+      const input = context.input;
+      const buttons = Number(input.buttons) || 0;
+
+      if (!(buttons & 1)) {
+        return;
+      }
+
+      if (!context.motion?.ground || context.motion?.jumpHeld) {
+        input.buttons = buttons & ~1;
+        context.localInput = input;
+      }
+    }, 15);
+
     bridge.onBeforePlayerUpdate(() => {
       if (!enabled) {
         restore();

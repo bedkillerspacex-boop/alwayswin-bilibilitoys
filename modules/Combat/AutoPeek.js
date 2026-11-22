@@ -3,6 +3,7 @@
 
   const CHANNEL = 'solstice-autopeek';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const OUTER_ORIGIN = 'https://www.bilibili.com';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
 
@@ -43,7 +44,8 @@
     }
 
     const modeSetting = module.settings.find((s) => s.n === 'Mode');
-    const mode = modeSetting?.vals?.[modeSetting.v] === 'Fight' ? 'Fight' : 'Jiggle';
+    const rawMode = modeSetting?.vals?.[modeSetting.v];
+    const mode = rawMode === 'Fight' ? 'Fight' : rawMode === 'Jiggle' ? 'Jiggle' : 'Smart';
     const retractDelaySetting = module.settings.find((s) => s.n === 'Retract Delay');
 
     if (retractDelaySetting) {
@@ -59,6 +61,7 @@
       retractDelay: Math.max(0, Math.min(400, Number(setting(module, 'Retract Delay', 80)) || 0)),
       maxEnemyDist: Math.max(5, Math.min(60, Number(setting(module, 'Max Enemy Dist', 35)) || 35)),
       sprintPeek: Boolean(setting(module, 'Sprint Peek', true)),
+      autoDisable: Boolean(setting(module, 'Auto Disable', false)),
       drawAnchor: Boolean(setting(module, 'Draw Anchor', true))
     };
     const key = JSON.stringify(config);
@@ -78,6 +81,24 @@
     lastSentAt = now;
   }
 
+  window.addEventListener('message', (event) => {
+    if (event.origin !== GAME_ORIGIN || event.data?.channel !== CHANNEL || event.data.type !== 'disable') {
+      return;
+    }
+
+    const frame = findGameFrame();
+
+    if (!frame || event.source !== frame.contentWindow) {
+      return;
+    }
+
+    const module = getMod('AutoPeek');
+
+    if (module?.on) {
+      setModuleOn(module, false);
+    }
+  });
+
   register({
     name: 'AutoPeek',
     desc: 'Automatically peeks out from cover to fight and retracts back.',
@@ -85,11 +106,12 @@
     nm: { l: 'autopeek', ls: 'auto peek', n: 'AutoPeek', ns: 'Auto Peek' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Jiggle fires and immediately retracts; Fight holds until kill/reload.', v: 0, vals: ['Jiggle', 'Fight'] },
+      { t: 'e', n: 'Mode', d: 'Smart exposes minimum body & avoids enemy crosshair; Jiggle fires once; Fight holds.', v: 0, vals: ['Smart', 'Jiggle', 'Fight'] },
       { t: 'n', n: 'Peek Range', d: 'Max distance in meters to probe around cover.', v: 2.5, min: 1.0, max: 4.0, step: 0.25 },
       { t: 'n', n: 'Retract Delay', d: 'Milliseconds to wait after firing before retracting (Jiggle).', v: 80, min: 0, max: 400, step: 25 },
       { t: 'n', n: 'Max Enemy Dist', d: 'Maximum distance to consider enemies behind cover.', v: 35, min: 5, max: 60, step: 1 },
       { t: 'b', n: 'Sprint Peek', d: 'Use sprint speed while peeking and retracting.', v: 1 },
+      { t: 'b', n: 'Auto Disable', d: 'Automatically turn off AutoPeek after one completed peek.', v: 0 },
       { t: 'b', n: 'Draw Anchor', d: 'Draw your cover anchor and peek point.', v: 1 }
     ],
     onRender: syncConfig,
@@ -127,11 +149,12 @@
 
     let config = {
       enabled: false,
-      mode: 'Jiggle',
+      mode: 'Smart',
       peekRange: 2.5,
       retractDelay: 80,
       maxEnemyDist: 35,
       sprintPeek: true,
+      autoDisable: false,
       drawAnchor: true
     };
 
@@ -245,9 +268,18 @@
 
         const perpX = -toZ / horizLen;
         const perpZ = toX / horizLen;
+        const snap = bridge.getRawSnapshot?.();
+        const enemySnap = Array.isArray(snap?.players)
+          ? snap.players.find((p) => p && p.id != null && String(p.id) === String(candidate.actor.id))
+          : null;
+        const enemyYaw = enemySnap && Number.isFinite(enemySnap.yaw) ? enemySnap.yaw : null;
 
-        for (let dist = 0.6; dist <= config.peekRange + 0.01; dist += 0.5) {
-          for (const side of [-1, 1]) {
+        let bestOption = null;
+        const step = config.mode === 'Smart' ? 0.22 : 0.45;
+        const startDist = config.mode === 'Smart' ? 0.35 : 0.6;
+
+        for (const side of [-1, 1]) {
+          for (let dist = startDist; dist <= config.peekRange + 0.01; dist += step) {
             const px = player.pos.x + perpX * side * dist;
             const pz = player.pos.z + perpZ * side * dist;
             const probeEye = { x: px, y: eyeY, z: pz };
@@ -255,16 +287,39 @@
             const curFeet = { x: player.pos.x, y: player.pos.y + 0.45, z: player.pos.z };
 
             if (!bridge.worldLineClear(curFeet, probeFeet) || !bridge.worldLineClear(eye, probeEye)) {
-              continue;
+              break;
             }
 
             if (bridge.worldLineClear(probeEye, candidate.enemyHead)) {
-              return {
-                actor: candidate.actor,
-                point: { x: px, y: player.pos.y, z: pz }
-              };
+              let score = dist;
+              if (config.mode === 'Smart' && enemyYaw !== null) {
+                const ex = px - candidate.enemyHead.x;
+                const ez = pz - candidate.enemyHead.z;
+                const elen = Math.hypot(ex, ez) || 1;
+                const efx = -Math.sin(enemyYaw);
+                const efz = -Math.cos(enemyYaw);
+                const lookDot = (ex * efx + ez * efz) / elen;
+                // Prefer off-angle away from enemy crosshair, while keeping exposure minimal
+                score += lookDot * 0.85;
+              }
+
+              if (!bestOption || score < bestOption.score) {
+                bestOption = {
+                  actor: candidate.actor,
+                  point: { x: px, y: player.pos.y, z: pz },
+                  score
+                };
+              }
+              break;
             }
           }
+        }
+
+        if (bestOption) {
+          return {
+            actor: bestOption.actor,
+            point: bestOption.point
+          };
         }
       }
 
@@ -311,21 +366,13 @@
         return;
       }
 
-      if (hasManualMove()) {
-        state = 'idle';
-        anchor = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
-        peekPoint = null;
-        targetActor = null;
-        return;
-      }
-
       const now = performance.now();
       const eyeY = player.pos.y + (player.e?.h ? player.e.h - 0.16 : 1.62);
       const eye = { x: player.pos.x, y: eyeY, z: player.pos.z };
       const yaw = Number(player.yaw) || 0;
 
       if (state === 'idle') {
-        if (!anchor || Math.hypot(player.pos.x - anchor.x, player.pos.z - anchor.z) > 0.6) {
+        if (!anchor || hasManualMove() || Math.hypot(player.pos.x - anchor.x, player.pos.z - anchor.z) > 0.6) {
           anchor = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
         }
 
@@ -377,6 +424,33 @@
               steerRight = steer.right;
             }
           }
+        } else if (config.mode === 'Smart') {
+          // Expose minimum body: stop immediately once enemy head is visible, retract if enemy locks onto us after we shoot
+          if (!visible && peekPoint) {
+            const steer = computeSteer(player.pos, peekPoint, yaw);
+
+            if (!steer.arrived) {
+              steerActive = true;
+              steerForward = steer.forward;
+              steerRight = steer.right;
+            }
+          } else if (visible && firedAt > 0 && now - firedAt > 260) {
+            const snap = bridge.getRawSnapshot?.();
+            const enemySnap = Array.isArray(snap?.players)
+              ? snap.players.find((p) => p && p.id != null && String(p.id) === String(targetActor.id))
+              : null;
+            if (enemySnap && Number.isFinite(enemySnap.yaw)) {
+              const ex = player.pos.x - targetActor.pos.x;
+              const ez = player.pos.z - targetActor.pos.z;
+              const elen = Math.hypot(ex, ez) || 1;
+              const lookDot = (ex * (-Math.sin(enemySnap.yaw)) + ez * (-Math.cos(enemySnap.yaw))) / elen;
+              if (lookDot > 0.92) {
+                state = 'retracting';
+                stateStartedAt = now;
+                return;
+              }
+            }
+          }
         } else {
           if (!visible && peekPoint) {
             const steer = computeSteer(player.pos, peekPoint, yaw);
@@ -393,20 +467,24 @@
       }
 
       if (state === 'retracting') {
-        if (!anchor || now - stateStartedAt > 1800) {
+        const done = !anchor || now - stateStartedAt > 1800 || computeSteer(player.pos, anchor, yaw).arrived;
+
+        if (done) {
           state = 'idle';
           cooldownUntil = now + 260;
+
+          if (config.autoDisable) {
+            resetPeek();
+            try {
+              window.parent.postMessage({ channel: CHANNEL, type: 'disable' }, OUTER_ORIGIN);
+            } catch {
+
+            }
+          }
           return;
         }
 
         const steer = computeSteer(player.pos, anchor, yaw);
-
-        if (steer.arrived) {
-          state = 'idle';
-          cooldownUntil = now + 260;
-          return;
-        }
-
         steerActive = true;
         steerForward = steer.forward;
         steerRight = steer.right;
@@ -611,11 +689,12 @@
 
       config = {
         enabled: Boolean(data.enabled),
-        mode: data.mode === 'Fight' ? 'Fight' : 'Jiggle',
+        mode: data.mode === 'Fight' ? 'Fight' : data.mode === 'Jiggle' ? 'Jiggle' : 'Smart',
         peekRange: Math.max(1.0, Math.min(4.0, Number(data.peekRange) || 2.5)),
         retractDelay: Math.max(0, Math.min(400, Number(data.retractDelay) || 0)),
         maxEnemyDist: Math.max(5, Math.min(60, Number(data.maxEnemyDist) || 35)),
         sprintPeek: data.sprintPeek !== false,
+        autoDisable: Boolean(data.autoDisable),
         drawAnchor: data.drawAnchor !== false
       };
 
