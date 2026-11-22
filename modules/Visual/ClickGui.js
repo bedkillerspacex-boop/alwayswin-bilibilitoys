@@ -88,11 +88,11 @@ function drawClickGui(dt){
             const on=Boolean(window.SolsticeMobile?.hasShortcut?.(mod.name));
             const cY=bRect.y+((bRect.h-bRect.y)-TH)/2;
             const rgbC=themed(moduleY*2);
-            text(bRect.x+PAD,cY,'Page Shortcut',on?[255,255,255]:[180,180,180],a,true,false,16);
+            text(bRect.x+5,cY,'Page Shortcut',on?[255,255,255]:[180,180,180],a,true,false,16);
             if(on){
-              fillGradRR(bRect.w-PAD-14,bRect.y+T*0.28,14,T*0.44,4,rgbC,rgbC,a,0);
+              fillGradRR(bRect.w-21,bRect.y+T*0.28,16,T*0.44,4,rgbC,rgbC,a,0);
             } else {
-              fillRR(bRect.w-PAD-14,bRect.y+T*0.28,14,T*0.44,4,[60,60,60],a,0);
+              fillRR(bRect.w-21,bRect.y+T*0.28,16,T*0.44,4,[60,60,60],a,0);
             }
           }
         }
