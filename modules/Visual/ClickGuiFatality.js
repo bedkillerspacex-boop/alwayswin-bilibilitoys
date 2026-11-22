@@ -361,10 +361,22 @@ function drawFtCard(card, y, dt, gmx, gmy) {
 
   const inTitle = gmy >= y - 1 && gmy <= y + FT.TITLE_H + 2;
 
-  if (!handled && hoverCard && inTitle && S.clicked[0] && mod.name !== 'ClickGui') {
-    setModuleOn(mod, !mod.on);
-  } else if (!handled && hoverCard && inTitle && S.clicked[1]) {
-    S.binding = mod;
+  if (!handled && hoverCard && inTitle) {
+    if (S.isTouch) {
+      if (S.touchTap && mod.name !== 'ClickGui') {
+        setModuleOn(mod, !mod.on);
+      } else if (S.touchLongPress) {
+        window.SolsticeMobile?.toggleShortcut?.(mod);
+      }
+    } else if (S.clicked[0] && mod.name !== 'ClickGui') {
+      setModuleOn(mod, !mod.on);
+    } else if (S.clicked[1]) {
+      if (S.isMobile) {
+        window.SolsticeMobile?.toggleShortcut?.(mod);
+      } else {
+        S.binding = mod;
+      }
+    }
   }
 }
 

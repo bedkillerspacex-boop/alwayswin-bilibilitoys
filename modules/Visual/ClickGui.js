@@ -70,6 +70,32 @@ function drawClickGui(dt){
       mod.cAnim=clamp(animate(mod.showSettings?1:0,mod.cAnim,dt*12.5),0,1);
 
       if(mod.cAnim>0.001){
+        if(S.isMobile){
+          moduleY=lerp(moduleY,moduleY+T,mod.cAnim);
+          let bRect={x:cp.x,y:catRect.y+CAT_H+moduleY,w:cp.x+CAT_W,h:catRect.y+CAT_H+moduleY+T};
+          bRect.y=Math.floor(bRect.y);
+          if(bRect.y<modRect.y) bRect.y=modRect.y;
+          if(bRect.y>catRect.y+0.5){
+            const endBind=(mod.settings.filter(s=>s.vis).length===0)&&endMod;
+            const rb=endBind?15:0;
+            fillRR(bRect.x,bRect.y,bRect.w-bRect.x,bRect.h-bRect.y,rb,[30,30,30],a,CORNER_BOTTOM);
+            if(inside(gmx,gmy,bRect)&&isOpen&&cp.extended){
+              tooltip='Add or remove a quick toggle button on the game page.';
+              if(S.clicked[0]&&!S.picker&&mod.showSettings){
+                window.SolsticeMobile?.toggleShortcut?.(mod);
+              }
+            }
+            const on=Boolean(window.SolsticeMobile?.hasShortcut?.(mod.name));
+            const cY=bRect.y+((bRect.h-bRect.y)-TH)/2;
+            const rgbC=themed(moduleY*2);
+            text(bRect.x+PAD,cY,'Page Shortcut',on?[255,255,255]:[180,180,180],a,true,false,16);
+            if(on){
+              fillGradRR(bRect.w-PAD-14,bRect.y+T*0.28,14,T*0.44,4,rgbC,rgbC,a,0);
+            } else {
+              fillRR(bRect.w-PAD-14,bRect.y+T*0.28,14,T*0.44,4,[60,60,60],a,0);
+            }
+          }
+        }
         let sIndex=0;
         const ST=mod.settings;
         for(const st of ST){
@@ -240,13 +266,21 @@ function drawClickGui(dt){
 
         if(inside(gmx,gmy,modRect)&&cp.extended&&isOpen){
           if(inside(gmx,gmy,catWindow)) tooltip=mod.desc;
-          if(S.clicked[0]&&!S.picker){
+          if(S.isTouch){
+            if(S.touchTap&&!S.picker){
+              if(mod.name==='ClickGui'){ S.open=!S.open; }
+              else setModuleOn(mod,!mod.on);
+            } else if(S.touchLongPress&&!S.picker){
+              mod.showSettings=!mod.showSettings;
+            }
+          } else if(S.clicked[0]&&!S.picker){
             if(mod.name==='ClickGui'){ S.open=!S.open; }
             else setModuleOn(mod,!mod.on);
           } else if(S.clicked[1]&&!S.picker){
             mod.showSettings=!mod.showSettings;
           } else if(S.clicked[2]&&!S.picker){
-            S.binding=mod;
+            if(S.isMobile) window.SolsticeMobile?.toggleShortcut?.(mod);
+            else S.binding=mod;
           }
         }
       }

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Solstice utilities for GOLDEN HOUR.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -91,7 +91,8 @@
         "js/main.js",
         "js/config.js",
         "js/commands.js",
-        "extension/page.js"
+        "extension/page.js",
+        "js/mobile.js"
       ],
       "run_at": "document_start",
       "all_frames": false,

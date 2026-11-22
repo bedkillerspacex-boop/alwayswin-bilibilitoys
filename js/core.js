@@ -151,7 +151,11 @@ const S={
   picker:null, pickerDrag:null,
   tooltip:'', tipAlpha:1, clickAnim:1, bindBool:null, binding:null,
   hintKilled:false,
-  hudEditor:false
+  hudEditor:false,
+  isMobile:(typeof navigator!=='undefined'&&(navigator.maxTouchPoints>0&&typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches))||/Android|iPhone|iPad|iPod|Mobile/i.test(typeof navigator!=='undefined'?navigator.userAgent:''),
+  isTouch:false,
+  touchTap:false,
+  touchLongPress:false
 };
 
 const HUD_LAYOUT_KEY='solstice.hud.layout';

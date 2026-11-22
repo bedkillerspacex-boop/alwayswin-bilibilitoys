@@ -1,15 +1,76 @@
+let touchState=null;
+
+function clearTouchState(){
+  if(!touchState) return;
+  if(touchState.timer) clearTimeout(touchState.timer);
+  touchState=null;
+}
+
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{
   e.preventDefault();
-  const b=e.button===2?1:(e.button===1?2:0);
   S.mx=e.clientX; S.my=e.clientY;
-  S.down[b]=true; S.clicked[b]=true;
+  if(e.pointerType==='touch'){
+    S.isTouch=true;
+    clearTouchState();
+    const id=e.pointerId;
+    const state={
+      id,
+      startX:e.clientX,
+      startY:e.clientY,
+      lastY:e.clientY,
+      moved:false,
+      longPressed:false,
+      timer:0
+    };
+    state.timer=setTimeout(()=>{
+      if(touchState&&touchState.id===id&&!touchState.moved){
+        touchState.longPressed=true;
+        S.touchLongPress=true;
+      }
+    },420);
+    touchState=state;
+    S.down[0]=true; S.clicked[0]=true;
+  }else{
+    S.isTouch=false;
+    const b=e.button===2?1:(e.button===1?2:0);
+    S.down[b]=true; S.clicked[b]=true;
+  }
   try{canvas.setPointerCapture(e.pointerId);}catch(_){}
 });
-window.addEventListener('pointermove',e=>{ S.mx=e.clientX; S.my=e.clientY; });
+window.addEventListener('pointermove',e=>{
+  S.mx=e.clientX; S.my=e.clientY;
+  if(touchState&&e.pointerId===touchState.id){
+    if(!touchState.moved&&Math.hypot(e.clientX-touchState.startX,e.clientY-touchState.startY)>10){
+      touchState.moved=true;
+      if(touchState.timer){ clearTimeout(touchState.timer); touchState.timer=0; }
+    }
+    if(touchState.moved&&!S.dragSetting&&!S.pickerDrag&&!S.dragCat){
+      const dy=e.clientY-touchState.lastY;
+      if(Math.abs(dy)>=10){
+        S.wheel=dy>0?-1:1;
+        touchState.lastY=e.clientY;
+      }
+    }
+  }
+});
 window.addEventListener('pointerup',e=>{
+  if(touchState&&e.pointerId===touchState.id){
+    if(!touchState.moved&&!touchState.longPressed){
+      S.touchTap=true;
+    }
+    clearTouchState();
+    S.down[0]=false; S.pickerDrag=null;
+    return;
+  }
   const b=e.button===2?1:(e.button===1?2:0);
   S.down[b]=false; S.pickerDrag=null;
+});
+window.addEventListener('pointercancel',e=>{
+  if(touchState&&e.pointerId===touchState.id){
+    clearTouchState();
+  }
+  S.down=[false,false,false]; S.pickerDrag=null;
 });
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -134,6 +195,8 @@ function frame(ts){
     for(const m of RENDER_MODS) renderModule(m,dt);
 
     S.clicked=[false,false,false];
+    S.touchTap=false;
+    S.touchLongPress=false;
     S.wheel=0;
     if(!S.down[0]&&!S.down[2]) S.dragSetting=null;
     MODS.forEach(m=>{m.__clicked=false;});
