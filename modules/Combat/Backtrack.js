@@ -42,7 +42,7 @@
       return;
     }
 
-    const maxWindowMs = Math.max(50, Math.min(350, Number(setting(module, 'Max Window (ms)', 250)) || 250));
+    const maxWindowMs = Math.max(50, Math.min(350, Number(setting(module, 'Max Window', 250)) || 250));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -75,9 +75,9 @@
     desc: 'Rewinds shot/melee tick to recent snapshots where targets were exposed.',
     cat: 'Combat',
     nm: { l: 'backtrack', ls: 'backtrack', n: 'Backtrack', ns: 'Backtrack' },
-    disp: 'Max Window (ms)',
+    disp: 'Max Window',
     settings: [
-      { t: 'n', n: 'Max Window (ms)', d: 'Maximum snapshot rewind window in milliseconds.', v: 250, min: 50, max: 350, step: 10 },
+      { t: 'n', n: 'Max Window', d: 'Maximum snapshot rewind window in milliseconds.', v: 250, min: 50, max: 350, step: 10 },
       { t: 'b', n: 'Only Aura', d: 'Only activate Backtrack when Aura is locked onto a target.', v: 0 },
       { t: 'b', n: 'Wall Check', d: 'Verify line of sight in world geometry before backtracking.', v: 1 },
       { t: 'b', n: 'Show Ghost', d: 'Draw cyan backtrack ghost box and diamond marker at enemy server/backtrack position.', v: 1 }

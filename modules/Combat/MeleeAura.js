@@ -48,7 +48,7 @@
       module: 'meleeaura',
       enabled: Boolean(module.on),
       range: Math.max(1.5, Math.min(5.0, Number(setting(module, 'Range', 3.2)) || 3.2)),
-      cooldownMs: Math.max(250, Math.min(1000, Number(setting(module, 'Cooldown (ms)', 450)) || 450)),
+      cooldownMs: Math.max(250, Math.min(1000, Number(setting(module, 'Cooldown', 450)) || 450)),
       autoSwing: Boolean(setting(module, 'Auto Swing', true)),
       wallCheck: Boolean(setting(module, 'Wall Check', true))
     };
@@ -77,7 +77,7 @@
     disp: 'Range',
     settings: [
       { t: 'n', n: 'Range', d: 'Maximum melee attack range in meters.', v: 3.2, min: 1.5, max: 5.0, step: 0.1 },
-      { t: 'n', n: 'Cooldown (ms)', d: 'Delay between automatic melee swings.', v: 450, min: 250, max: 1000, step: 25 },
+      { t: 'n', n: 'Cooldown', d: 'Delay between automatic melee swings (ms).', v: 450, min: 250, max: 1000, step: 25 },
       { t: 'b', n: 'Auto Swing', d: 'Automatically swing melee when an enemy is in range.', v: 1 },
       { t: 'b', n: 'Wall Check', d: 'Require clear line of sight to target.', v: 1 }
     ],
