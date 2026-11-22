@@ -191,6 +191,7 @@
     let target = null;
     let lastHealth = null;
     let engineHooked = false;
+    let syntheticAds = false;
     const recentAttackers = new Map();
     const spawnedAtMap = new Map();
     const prevAliveMap = new Map();
@@ -530,16 +531,111 @@
       return current + Math.sign(diff) * maxDelta;
     }
 
-    function clearCombatState() {
-      target = null;
-      lastHealth = null;
-      bridge.requestAutoFire('aura', false);
-      if (typeof bridge.requestAds === 'function') {
-        bridge.requestAds('aura', false);
+    function setAds(wanted) {
+      const input = bridge.getGH()?.debug?.input;
+
+      if (!input || !input.keys) {
+        syntheticAds = false;
+        return;
+      }
+
+      if (wanted && !bridge.physicalRmb) {
+        input.keys.add('Mouse2');
+        syntheticAds = true;
+      } else {
+        if (!bridge.physicalRmb) {
+          input.keys.delete('Mouse2');
+        }
+        syntheticAds = false;
       }
     }
 
+    function releaseAds() {
+      setAds(false);
+    }
+
+    function canFireNow() {
+      if (!config.enabled || !target) {
+        return false;
+      }
+
+      const debug = bridge.getGH()?.debug;
+      const arsenal = debug?.arsenal;
+
+      if (!arsenal || arsenal.state !== 'ready' || arsenal.cool > 0) {
+        return false;
+      }
+
+      if ((arsenal.pumpWait || 0) > 0 || debug.player?.mode === 'mantle') {
+        return false;
+      }
+
+      return (arsenal.slot?.ammo || 0) > 0;
+    }
+
+    function installSprintLock() {
+      const arsenal = bridge.getGH()?.debug?.arsenal;
+
+      if (!arsenal) {
+        return;
+      }
+
+      if (
+        typeof arsenal.blocksSprint === 'function' &&
+        !arsenal.blocksSprint.__solsticeAuraSprintUnlock
+      ) {
+        const originalBlocksSprint = arsenal.blocksSprint;
+        const wrappedBlocksSprint = function wrappedAuraBlocksSprint(...args) {
+          if (!config.enabled) {
+            return originalBlocksSprint.apply(this, args);
+          }
+
+          const sinceFire = this.sinceFire;
+          this.sinceFire = 999;
+
+          try {
+            return originalBlocksSprint.apply(this, args);
+          } finally {
+            this.sinceFire = sinceFire;
+          }
+        };
+
+        Object.defineProperty(wrappedBlocksSprint, '__solsticeAuraSprintUnlock', { value: true });
+        arsenal.blocksSprint = wrappedBlocksSprint;
+      }
+
+      if (!arsenal.__solsticeAuraSprintLockPatched) {
+        try {
+          let storedSprintLock = Number(arsenal.sprintLock) || 0;
+
+          Object.defineProperty(arsenal, 'sprintLock', {
+            configurable: true,
+            enumerable: true,
+            get() {
+              return config.enabled ? 0 : storedSprintLock;
+            },
+            set(value) {
+              storedSprintLock = Number(value) || 0;
+            }
+          });
+
+          Object.defineProperty(arsenal, '__solsticeAuraSprintLockPatched', { value: true });
+        } catch {
+
+        }
+      }
+    }
+
+    function clearCombatState() {
+      target = null;
+      lastHealth = null;
+      releaseAds();
+      bridge.requestAutoFire('aura', false);
+    }
+
     installSnapshotTracker();
+    installSprintLock();
+    setInterval(installSprintLock, 500);
 
     bridge.onBeforePlayerUpdate((dt) => {
       if (!config.enabled || !bridge.active || bridge.uiOpen) {
@@ -568,21 +664,18 @@
 
       if (!picked) {
         target = null;
+        releaseAds();
         bridge.requestAutoFire('aura', false);
-        if (typeof bridge.requestAds === 'function') {
-          bridge.requestAds('aura', false);
-        }
         return;
       }
 
       target = picked.actor;
-      const angles = aimAngles(origin, picked.point);
+      setAds(config.ads);
 
-      if (angles) {
-        if (config.turnSpeed >= 999) {
-          context.player.yaw = angles.yaw;
-          context.player.pitch = angles.pitch;
-        } else {
+      if (config.turnSpeed < 999) {
+        const angles = aimAngles(origin, picked.point);
+
+        if (angles) {
           const maxStep = (config.turnSpeed * Math.PI / 180) * Math.max(0.001, Math.min(dt || 0.016, 0.05));
           context.player.yaw = stepAngle(context.player.yaw, angles.yaw, maxStep);
           context.player.pitch = bridge.clamp(
@@ -594,9 +687,6 @@
       }
 
       bridge.requestAutoFire('aura', true);
-      if (typeof bridge.requestAds === 'function') {
-        bridge.requestAds('aura', config.ads);
-      }
     }, 30);
 
     bridge.onCombatFire((actor) => {
@@ -662,6 +752,28 @@
 
       if (!config.enabled) {
         clearCombatState();
+      }
+    });
+
+    bridge.provide('aura', {
+      isSyntheticAds: () => syntheticAds,
+      getTarget: () => target,
+      canFireNow,
+      getAimPoint: (eye) => {
+        if (!target) {
+          return null;
+        }
+
+        const debug = bridge.getGH()?.debug;
+        const engineState = typeof bridge.getEngineState === 'function' ? bridge.getEngineState() : null;
+        const origin = eye || resolveShooterOrigin(debug, engineState);
+
+        if (!origin) {
+          return null;
+        }
+
+        const pt = pickBestAimPoint(target, origin, engineState?.world || null);
+        return pt && debug?.player?.pos ? debug.player.pos.clone().set(pt.x, pt.y, pt.z) : null;
       }
     });
 
