@@ -1,12 +1,11 @@
 (() => {
   'use strict';
 
-  /* Speed：把移动输入按倍率放大（原版 world.move 读的就是 forward/right），
-     同时顺手把玩家/武器上的速度系数一并顶住。
-     只在本地生效，别人看到的还是正常速度。 */
-
-  /* 注意：游戏页会提前 return，所以游戏侧用到的常量必须声明在判定之前 */
-  const SPEED_FIELDS = ['speedMul', 'moveMul', 'runMul', 'sprintMul', 'moveSpeed', 'walkSpeed', 'speedK', 'moveK'];
+  /* Speed：
+     - LegitHop：移动且落地时立即起跳，空中松开 Space 保证下一跳零延迟
+     - SlideHop：利用服务端 simulation.js 滑铲机制（1.3x 加速至 9.75-11 m/s），
+       在落地且冷却就绪时触发服务端滑铲加速并接跳，滑铲速度回落至 7.6 m/s 时自动蹲取消（>0.28s），
+       让服务端平均速度持续高于普通疾跑（7.5 m/s） */
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
     bootGame();
@@ -31,13 +30,6 @@
     return null;
   }
 
-  function value(module, name, fallback) {
-    const setting = module.settings.find((entry) => entry.n === name);
-    const raw = setting ? setting.v : fallback;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : fallback;
-  }
-
   function syncConfig() {
     const module = getMod('Speed');
 
@@ -52,15 +44,13 @@
     }
 
     const modeSetting = module.settings.find((s) => s.n === 'Mode');
-    const mode = modeSetting?.vals?.[modeSetting.v] === 'LegitHop' ? 'LegitHop' : 'Vanilla';
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'SlideHop' ? 'SlideHop' : 'LegitHop';
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'speed',
       enabled: Boolean(module.on),
-      mode,
-      multiplier: value(module, 'Multiplier', 1.35),
-      input: Boolean((module.settings.find((s) => s.n === 'Scale Input') || { v: 1 }).v)
+      mode
     };
     const key = JSON.stringify(config);
 
@@ -81,18 +71,25 @@
 
   register({
     name: 'Speed',
-    desc: 'Moves you faster by scaling the movement input.',
+    desc: 'LegitHop auto-jumps on ground; SlideHop chains server 1.3x slide boosts + cancels for real server speed.',
     cat: 'Movement',
     nm: { l: 'speed', ls: 'speed', n: 'Speed', ns: 'Speed' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Vanilla scales speed; LegitHop simulates holding Space while moving.', v: 0, vals: ['Vanilla', 'LegitHop'] },
-      { t: 'n', n: 'Multiplier', d: 'Movement speed multiplier.', v: 1.35, min: 1.0, max: 4.0, step: 0.05 },
-      { t: 'b', n: 'Scale Input', d: 'Scales forward/right. Turn off if the game clamps it.', v: 1 },
-      { t: 'b', n: 'Boost Fields', d: 'Also pins player speed multipliers.', v: 1 }
+      {
+        t: 'e',
+        n: 'Mode',
+        d: 'LegitHop jumps on ground contact; SlideHop chains server 9.75-11 m/s slide boosts.',
+        v: 0,
+        vals: ['LegitHop', 'SlideHop']
+      }
     ],
     onRender: syncConfig,
-    onEnable() {}
+    onEnable() {
+      lastSentKey = '';
+      lastSentAt = 0;
+      syncConfig();
+    }
   });
 
   function bootGame() {
@@ -117,17 +114,20 @@
 
   function installGame(bridge) {
     let enabled = false;
-    let mode = 'Vanilla';
-    let multiplier = 1.35;
-    let scaleInput = true;
-    let boostFields = true;
-    let pendingRestore = null;
+    let mode = 'LegitHop';
     let syntheticSpace = false;
-    let hopPressed = false;
+    let enginePatched = false;
+
+    const serverState = {
+      ground: true,
+      sliding: false,
+      crouch: false,
+      slideTime: 0,
+      slideCooldown: 0,
+      speed: 0
+    };
 
     function releaseSpace() {
-      hopPressed = false;
-
       if (!syntheticSpace) {
         return;
       }
@@ -144,25 +144,91 @@
       input?.touchDown?.delete('Space');
     }
 
-    function player() {
-      return bridge.getGH()?.debug?.player;
-    }
+    function patchNetInput(engine) {
+      const net = engine?.net;
 
-    function restoreInput() {
-      if (!pendingRestore) {
+      if (!net || typeof net.input !== 'function' || net.input.__solsticeSpeedPatched) {
         return;
       }
 
-      const { input, forward, right } = pendingRestore;
-      pendingRestore = null;
+      const originalInput = net.input;
+      const wrappedInput = function wrappedSpeedInput(input, ...rest) {
+        if (enabled && mode === 'SlideHop' && input) {
+          const moving = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0) > 0.01;
+          let buttons = input.buttons | 0;
 
-      if (input) {
-        const scaledForward = forward * multiplier;
-        const scaledRight = right * multiplier;
+          if (moving && !(buttons & 8)) {
+            buttons |= 2; // SPRINT
+          }
 
-        if (Math.abs(input.forward - scaledForward) < 1e-9) input.forward = forward;
-        if (Math.abs(input.right - scaledRight) < 1e-9) input.right = right;
+          if (!serverState.ground) {
+            buttons &= ~1; // release JUMP in air so jumpHeld resets before landing
+          } else if (moving) {
+            if (!serverState.sliding && !serverState.crouch && serverState.slideCooldown <= 0 && serverState.speed > 5.2) {
+              buttons |= 16; // trigger server 1.3x slide boost
+            }
+
+            if (serverState.sliding) {
+              buttons |= 1; // hop while carrying boosted slide velocity
+            }
+          }
+
+          // Cancel slide right before speed drops below sprint speed (7.5 m/s)
+          if (serverState.sliding && serverState.slideTime > 0.28 && serverState.speed <= 7.6) {
+            buttons |= 4; // CROUCH cancels slide cleanly and starts 0.4s cooldown early
+          }
+
+          if (buttons !== input.buttons) {
+            input = { ...input, buttons };
+          }
+        }
+
+        return originalInput.call(this, input, ...rest);
+      };
+
+      Object.defineProperty(wrappedInput, '__solsticeSpeedPatched', { value: true });
+      net.input = wrappedInput;
+    }
+
+    function installEnginePatch() {
+      if (enginePatched) {
+        return;
       }
+
+      enginePatched = true;
+      const engineUrl = new URL('client/engine.js', location.href).href;
+
+      import(engineUrl)
+        .then(({ Engine }) => {
+          const proto = Engine?.prototype;
+
+          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeSpeedPatched) {
+            return;
+          }
+
+          const originalSnapshot = proto.snapshot;
+          const wrappedSnapshot = function wrappedSpeedSnapshot(s, ...rest) {
+            patchNetInput(this);
+            const me = s?.players?.find((p) => p.id === this.net?.id);
+
+            if (me) {
+              serverState.ground = Boolean(me.ground);
+              serverState.sliding = Boolean(me.sliding);
+              serverState.crouch = Boolean(me.crouch);
+              serverState.slideTime = Number(me.slideTime) || 0;
+              serverState.slideCooldown = Number(me.slideCooldown) || 0;
+              serverState.speed = Math.hypot(Number(me.vx) || 0, Number(me.vz) || 0);
+            }
+
+            return originalSnapshot.call(this, s, ...rest);
+          };
+
+          Object.defineProperty(wrappedSnapshot, '__solsticeSpeedPatched', { value: true });
+          proto.snapshot = wrappedSnapshot;
+        })
+        .catch(() => {
+          enginePatched = false;
+        });
     }
 
     bridge.onConfig('solstice-movement', (data) => {
@@ -171,125 +237,70 @@
       }
 
       enabled = Boolean(data.enabled);
-      mode = data.mode === 'LegitHop' ? 'LegitHop' : 'Vanilla';
-      multiplier = Math.max(1, Math.min(4, Number(data.multiplier) || 1.35));
-      scaleInput = data.input !== false;
-      boostFields = true;
+      mode = data.mode === 'SlideHop' ? 'SlideHop' : 'LegitHop';
+
+      if (enabled && mode === 'SlideHop') {
+        installEnginePatch();
+      }
 
       if (!enabled || mode !== 'LegitHop') {
         releaseSpace();
       }
-
-      if (!enabled || mode === 'LegitHop') {
-        restoreInput();
-      }
     });
 
-    bridge.onWorldMove((context) => {
-      if (!enabled || mode === 'LegitHop' || !scaleInput || !context?.input) {
-        return;
-      }
-
-      const input = context.input;
-      const forward = Number(input.forward) || 0;
-      const right = Number(input.right) || 0;
-
-      if (!forward && !right) {
-        return;
-      }
-
-      input.forward = forward * multiplier;
-      input.right = right * multiplier;
-
-      if (context.localInput === context.input) {
-        context.localInput = { ...context.input };
-      }
-
-      pendingRestore = { input, forward, right };
-      queueMicrotask(restoreInput);
-    }, 15);
-
     bridge.onBeforePlayerUpdate(() => {
-      if (!enabled) {
+      if (!enabled || mode !== 'LegitHop') {
         releaseSpace();
         return;
       }
 
-      if (mode === 'LegitHop') {
-        const debug = bridge.getGH()?.debug;
-        const input = debug?.input;
-        const target = debug?.player;
-        const touchForward = Number(input?.touchForward) || 0;
-        const touchRight = Number(input?.touchRight) || 0;
-        const moving = Boolean(
-          bridge.physicalW ||
-          bridge.physicalA ||
-          bridge.physicalS ||
-          bridge.physicalD ||
-          input?.keys?.has('KeyW') ||
-          input?.keys?.has('KeyA') ||
-          input?.keys?.has('KeyS') ||
-          input?.keys?.has('KeyD') ||
-          input?.keys?.has('ArrowUp') ||
-          input?.keys?.has('ArrowDown') ||
-          input?.keys?.has('ArrowLeft') ||
-          input?.keys?.has('ArrowRight') ||
-          Math.abs(touchForward) > 0.1 ||
-          Math.abs(touchRight) > 0.1
-        );
+      const debug = bridge.getGH()?.debug;
+      const input = debug?.input;
+      const target = debug?.player;
+      const touchForward = Number(input?.touchForward) || 0;
+      const touchRight = Number(input?.touchRight) || 0;
+      const moving = Boolean(
+        bridge.physicalW ||
+        bridge.physicalA ||
+        bridge.physicalS ||
+        bridge.physicalD ||
+        input?.keys?.has('KeyW') ||
+        input?.keys?.has('KeyA') ||
+        input?.keys?.has('KeyS') ||
+        input?.keys?.has('KeyD') ||
+        input?.keys?.has('ArrowUp') ||
+        input?.keys?.has('ArrowDown') ||
+        input?.keys?.has('ArrowLeft') ||
+        input?.keys?.has('ArrowRight') ||
+        Math.abs(touchForward) > 0.1 ||
+        Math.abs(touchRight) > 0.1
+      );
 
-        if (!input?.keys || !target?.alive || !moving || bridge.uiOpen) {
-          releaseSpace();
-          return;
-        }
-
-        const engineState = typeof bridge.getEngineState === 'function' ? bridge.getEngineState() : null;
-        const grounded = Boolean(target.e?.onGround || engineState?.predicted?.ground);
-
-        if (!grounded) {
-          if (!bridge.physicalSpace) {
-            input.keys.delete('Space');
-            input.down?.delete('Space');
-            input.touchDown?.delete('Space');
-          }
-
-          hopPressed = false;
-          syntheticSpace = false;
-          return;
-        }
-
-        input.keys.add('Space');
-        input.down?.add('Space');
-        input.touchDown?.add('Space');
-        hopPressed = true;
-        syntheticSpace = true;
+      if (!input?.keys || !target?.alive || !moving || bridge.uiOpen) {
+        releaseSpace();
         return;
       }
 
-      if (!boostFields) {
-        return;
-      }
+      const engineState = typeof bridge.getEngineState === 'function' ? bridge.getEngineState() : null;
+      const grounded = Boolean(target.e?.onGround || engineState?.predicted?.ground);
 
-      const target = player();
-
-      if (!target) {
-        return;
-      }
-
-      for (const name of SPEED_FIELDS) {
-        const current = target[name];
-
-        if (typeof current === 'number' && Number.isFinite(current) && current > 0 && current < 8) {
-          target[name] = Math.max(current, multiplier);
+      if (!grounded) {
+        if (!bridge.physicalSpace) {
+          input.keys.delete('Space');
+          input.down?.delete('Space');
+          input.touchDown?.delete('Space');
         }
+
+        syntheticSpace = false;
+        return;
       }
 
+      input.keys.add('Space');
+      input.down?.add('Space');
+      input.touchDown?.add('Space');
+      syntheticSpace = true;
+    }, 10);
 
-    }, 40);
-
-    bridge.onReset(() => {
-      pendingRestore = null;
-      releaseSpace();
-    });
+    bridge.onReset(releaseSpace);
   }
 })();
