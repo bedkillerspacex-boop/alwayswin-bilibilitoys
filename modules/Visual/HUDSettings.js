@@ -58,10 +58,42 @@ function themed(index) {
   const f = angle / seg - si;
   return lerpC(cols[si % cols.length], cols[(si + 1) % cols.length], f);
 }
+let googleFontInjected = false;
+
+function ensureGoogleFont() {
+  if (googleFontInjected || typeof document === 'undefined') {
+    return;
+  }
+
+  const head = document.head || document.documentElement;
+
+  if (!head || document.getElementById('solstice-google-font')) {
+    googleFontInjected = true;
+    return;
+  }
+
+  googleFontInjected = true;
+  const link = document.createElement('link');
+  link.id = 'solstice-google-font';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap';
+  head.appendChild(link);
+}
+
 function uiFont() {
   const f = iSet('Font');
   const v = f ? f.vals[f.v] || 'Product Sans' : 'Product Sans';
-  return v === 'Mojangles' ? 'Mojangles' : 'Product Sans';
+
+  if (v === 'Mojangles') {
+    return 'Mojangles';
+  }
+
+  if (v === 'Google Font') {
+    ensureGoogleFont();
+    return 'Inter';
+  }
+
+  return 'Product Sans';
 }
 
 (() => {
@@ -151,7 +183,7 @@ function uiFont() {
     settings: [
       { t: 'e', n: 'Naming', d: 'The style of the module names.', v: 0, vals: ['lowercase', 'lower spaced', 'Normal', 'Spaced'] },
       { t: 'e', n: 'Theme', d: 'The mode of the interface.', v: 0, vals: ['Trans', 'Bubblegum', 'Watermelon', 'Sunset', 'Poison', 'Custom'] },
-      { t: 'e', n: 'Font', d: 'The font of the interface.', v: 0, vals: ['Mojangles', 'Product Sans'] },
+      { t: 'e', n: 'Font', d: 'The font of the interface.', v: 0, vals: ['Mojangles', 'Product Sans', 'Google Font'] },
       { t: 'n', n: 'Colors', d: 'The amount of colors in the interface.', v: 3.0, min: 1.0, max: 6.0, step: 1.0 },
       { t: 'c', n: 'Color 1', d: 'The first color of the interface.', v: [255, 0, 0, 255] },
       { t: 'c', n: 'Color 2', d: 'The second color of the interface.', v: [255, 127, 0, 255] },
