@@ -142,6 +142,8 @@
     let primaryEmptyHandled = false;
     let pendingReturnToPrimary = false;
     let helperSwappedSecondary = false;
+    let autoSwapTargetSlot = null;
+    let autoSwapUntil = 0;
     let swappedToSecondaryAt = 0;
     let autoReloadSlot = null;
     let preReloadAmmo = 0;
@@ -156,6 +158,8 @@
       primaryEmptyHandled = false;
       pendingReturnToPrimary = false;
       helperSwappedSecondary = false;
+      autoSwapTargetSlot = null;
+      autoSwapUntil = 0;
       swappedToSecondaryAt = 0;
       autoReloadSlot = null;
       preReloadAmmo = 0;
@@ -294,10 +298,21 @@
       const scoredKill = kills > lastKills;
       lastKills = kills;
 
-      if (state.cur !== 1) {
+      if (autoSwapTargetSlot === 1 && state.cur === 1) {
+        helperSwappedSecondary = true;
+        autoSwapTargetSlot = null;
+      } else if (autoSwapTargetSlot === 0 && state.cur === 0) {
+        helperSwappedSecondary = false;
+        pendingReturnToPrimary = false;
+        autoSwapTargetSlot = null;
+      } else if (autoSwapTargetSlot !== null && now > autoSwapUntil) {
+        autoSwapTargetSlot = null;
+      }
+
+      if (state.cur !== 1 && autoSwapTargetSlot !== 1) {
         pendingReturnToPrimary = false;
         helperSwappedSecondary = false;
-      } else if (returnOnKill && scoredKill && helperSwappedSecondary) {
+      } else if (state.cur === 1 && returnOnKill && scoredKill && helperSwappedSecondary) {
         pendingReturnToPrimary = true;
       }
 
@@ -375,6 +390,8 @@
         if (pendingReturnToPrimary && !enemyLeft) {
           pendingReturnToPrimary = false;
           helperSwappedSecondary = false;
+          autoSwapTargetSlot = 0;
+          autoSwapUntil = now + 1500;
           tookDamageUntil = 0;
           swapCooldownUntil = now + SWAP_COOLDOWN_MS;
           state.swap(0);
@@ -389,6 +406,8 @@
             swappedToSecondaryAt = now;
           } else if (now - swappedToSecondaryAt >= IDLE_RETURN_DELAY_MS && sinceFire >= IDLE_SINCE_FIRE_SEC) {
             helperSwappedSecondary = false;
+            autoSwapTargetSlot = 0;
+            autoSwapUntil = now + 1500;
             tookDamageUntil = 0;
             swapCooldownUntil = now + SWAP_COOLDOWN_MS;
             state.swap(0);
@@ -410,6 +429,8 @@
         }
 
         helperSwappedSecondary = true;
+        autoSwapTargetSlot = 1;
+        autoSwapUntil = now + 1500;
         tookDamageUntil = 0;
         swappedToSecondaryAt = now;
         swapCooldownUntil = now + SWAP_COOLDOWN_MS;

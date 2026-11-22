@@ -93,6 +93,38 @@ async function openConfigFolder(message) {
 }
 
 async function handleConfigMessage(message) {
+  if (message.action === 'storage-load') {
+    try {
+      const res = await chrome.storage.local.get(['solstice_cfg_store', 'solstice_cfg_active']);
+      return {
+        ok: true,
+        store: res.solstice_cfg_store && typeof res.solstice_cfg_store === 'object' ? res.solstice_cfg_store : null,
+        active: typeof res.solstice_cfg_active === 'string' ? res.solstice_cfg_active : ''
+      };
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  }
+
+  if (message.action === 'storage-save') {
+    try {
+      const payload = {};
+
+      if (message.store && typeof message.store === 'object') {
+        payload.solstice_cfg_store = message.store;
+      }
+
+      if (typeof message.active === 'string' && message.active) {
+        payload.solstice_cfg_active = message.active;
+      }
+
+      await chrome.storage.local.set(payload);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  }
+
   if (message.action === 'write') {
     return writeConfigFile(message);
   }

@@ -222,7 +222,9 @@
         action: data.action,
         name: data.name,
         folder: data.folder,
-        content: data.content
+        content: data.content,
+        store: data.store,
+        active: data.active
       }, (response) => {
         if (chrome.runtime.lastError) {
           reply({ ok: false, error: chrome.runtime.lastError.message });

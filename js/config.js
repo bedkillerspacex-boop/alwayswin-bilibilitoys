@@ -87,8 +87,23 @@
     return {};
   }
 
+  let storageSyncTimer = 0;
+
+  function scheduleStorageSync() {
+    if (storageSyncTimer) {
+      return;
+    }
+
+    storageSyncTimer = setTimeout(() => {
+      storageSyncTimer = 0;
+      bridge('storage-save', { store: store(), active: active() }).catch(() => {});
+    }, 150);
+  }
+
   function writeStore(next) {
-    return writeJson(STORE_KEY, next);
+    const ok = writeJson(STORE_KEY, next);
+    scheduleStorageSync();
+    return ok;
   }
 
   function names() {
@@ -651,6 +666,29 @@
 
   /* ── boot ───────────────────────────────────────────────────────── */
 
+  async function syncFromExtensionStorage() {
+    try {
+      const res = await bridge('storage-load', {});
+
+      if (res?.ok && res.store && Object.keys(res.store).length > 0) {
+        const current = store();
+        const merged = { ...current, ...res.store };
+        writeJson(STORE_KEY, merged);
+
+        const targetName = sanitizeName(res.active) || active();
+
+        if (merged[targetName]) {
+          applySnapshot(merged[targetName]);
+          setActive(targetName);
+        }
+      } else {
+        await bridge('storage-save', { store: store(), active: active() });
+      }
+    } catch {
+
+    }
+  }
+
   function boot() {
     try {
       migrateLegacy();
@@ -665,8 +703,9 @@
       }
 
       startAutosave();
+      syncFromExtensionStorage();
 
-      /* 首次启动把 Default.cfg 写到 Downloads/Solstice/（同时创建文件夹） */
+      /* 首次启动把 Default.solcod 写到 Downloads/Solstice/（同时创建文件夹） */
       setTimeout(() => {
         writeFile(active());
       }, 3000);
