@@ -70,7 +70,6 @@
       module: 'bhop',
       enabled: Boolean(module.on),
       mode,
-      autoJump: Boolean(setting(module, 'Auto Jump', true)),
       lowHop: Boolean(setting(module, 'LowHop', true)),
       jumpScale: Math.max(0.35, Math.min(0.95, Number(setting(module, 'Jump Scale', 0.72)) || 0.72)),
       fastFall: Boolean(setting(module, 'FastFall', true)),
@@ -109,7 +108,6 @@
         v: 0,
         vals: ['Bug', 'Smart', 'Custom']
       },
-      { t: 'b', n: 'Auto Jump', d: 'Automatically jump immediately on ground contact while moving.', v: 1 },
       { t: 'b', n: 'LowHop', d: 'Scale jump takeoff velocity.', v: 1 },
       { t: 'n', n: 'Jump Scale', d: 'Lower values produce lower jumps.', v: 0.72, min: 0.35, max: 0.95, step: 0.02 },
       { t: 'b', n: 'FastFall', d: 'Pull downward after jump apex.', v: 1 },
@@ -148,7 +146,6 @@
   function installGame(bridge) {
     let enabled = false;
     let mode = 'Bug';
-    let autoJump = true;
     let lowHop = true;
     let jumpScale = 0.72;
     let fastFall = true;
@@ -163,26 +160,8 @@
     let latestServerSliding = false;
     let latestServerCrouch = false;
     let latestServerSlideCooldown = 0;
-    let syntheticSpace = false;
     let prevOnGround = false;
     let prevJumpCount = null;
-
-    function releaseSpace() {
-      if (!syntheticSpace) {
-        return;
-      }
-
-      syntheticSpace = false;
-
-      if (bridge.physicalSpace) {
-        return;
-      }
-
-      const input = bridge.getGH()?.debug?.input;
-      input?.keys?.delete('Space');
-      input?.down?.delete('Space');
-      input?.touchDown?.delete('Space');
-    }
 
     function patchNetInput(engine) {
       const net = engine?.net;
@@ -202,12 +181,15 @@
           }
 
           if (!latestServerGround) {
-            buttons &= ~1; // release JUMP in air so server jumpHeld = false before landing
-          } else if (moving) {
-            if (!latestServerSliding && !latestServerCrouch && latestServerSlideCooldown <= 0 && latestServerSpeed > 5.2) {
-              buttons |= 16; // trigger server 1.3x slide boost (9.75 - 11.0 m/s)
-            }
-            buttons |= 1; // instant server JUMP on ground
+            buttons &= ~1; // keep server jumpHeld=false while server is still airborne
+          } else if (
+            moving &&
+            !latestServerSliding &&
+            !latestServerCrouch &&
+            latestServerSlideCooldown <= 0 &&
+            latestServerSpeed > 5.2
+          ) {
+            buttons |= 16; // trigger server 1.3x slide boost (9.75 - 11.0 m/s)
           }
 
           if (buttons !== input.buttons) {
@@ -348,7 +330,6 @@
 
       enabled = Boolean(data.enabled);
       mode = data.mode === 'Smart' || data.mode === 'Custom' ? data.mode : 'Bug';
-      autoJump = data.autoJump !== false;
       lowHop = data.lowHop !== false;
       jumpScale = Math.max(0.35, Math.min(0.95, Number(data.jumpScale) || 0.72));
       fastFall = data.fastFall !== false;
@@ -359,63 +340,8 @@
       if (enabled) {
         installSimPatch();
         installEnginePatch();
-      } else {
-        releaseSpace();
       }
     });
-
-    bridge.onBeforePlayerUpdate(() => {
-      if (!enabled || !autoJump) {
-        releaseSpace();
-        return;
-      }
-
-      const debug = bridge.getGH()?.debug;
-      const input = debug?.input;
-      const target = debug?.player;
-      const touchForward = Number(input?.touchForward) || 0;
-      const touchRight = Number(input?.touchRight) || 0;
-      const moving = Boolean(
-        bridge.physicalW ||
-        bridge.physicalA ||
-        bridge.physicalS ||
-        bridge.physicalD ||
-        input?.keys?.has('KeyW') ||
-        input?.keys?.has('KeyA') ||
-        input?.keys?.has('KeyS') ||
-        input?.keys?.has('KeyD') ||
-        input?.keys?.has('ArrowUp') ||
-        input?.keys?.has('ArrowDown') ||
-        input?.keys?.has('ArrowLeft') ||
-        input?.keys?.has('ArrowRight') ||
-        Math.abs(touchForward) > 0.1 ||
-        Math.abs(touchRight) > 0.1
-      );
-
-      if (!input?.keys || !target?.alive || !moving || bridge.uiOpen) {
-        releaseSpace();
-        return;
-      }
-
-      const engineState = typeof bridge.getEngineState === 'function' ? bridge.getEngineState() : null;
-      const grounded = Boolean(target.e?.onGround || engineState?.predicted?.ground);
-
-      if (!grounded) {
-        if (!bridge.physicalSpace) {
-          input.keys.delete('Space');
-          input.down?.delete('Space');
-          input.touchDown?.delete('Space');
-        }
-
-        syntheticSpace = false;
-        return;
-      }
-
-      input.keys.add('Space');
-      input.down?.add('Space');
-      input.touchDown?.add('Space');
-      syntheticSpace = true;
-    }, 10);
 
     bridge.onPlayerUpdate(() => {
       const player = bridge.getGH()?.debug?.player;
@@ -434,7 +360,5 @@
       prevOnGround = onGround;
       prevJumpCount = player.ev?.jump ?? jumpCount;
     });
-
-    bridge.onReset(releaseSpace);
   }
 })();

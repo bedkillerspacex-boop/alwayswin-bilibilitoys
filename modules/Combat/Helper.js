@@ -141,6 +141,7 @@
     let tookDamageUntil = 0;
     let primaryEmptyHandled = false;
     let pendingReturnToPrimary = false;
+    let helperSwappedSecondary = false;
     let swappedToSecondaryAt = 0;
     let autoReloadSlot = null;
     let preReloadAmmo = 0;
@@ -154,6 +155,7 @@
       tookDamageUntil = 0;
       primaryEmptyHandled = false;
       pendingReturnToPrimary = false;
+      helperSwappedSecondary = false;
       swappedToSecondaryAt = 0;
       autoReloadSlot = null;
       preReloadAmmo = 0;
@@ -292,9 +294,10 @@
       const scoredKill = kills > lastKills;
       lastKills = kills;
 
-      if (state.cur === 0) {
+      if (state.cur !== 1) {
         pendingReturnToPrimary = false;
-      } else if (returnOnKill && scoredKill && state.cur === 1) {
+        helperSwappedSecondary = false;
+      } else if (returnOnKill && scoredKill && helperSwappedSecondary) {
         pendingReturnToPrimary = true;
       }
 
@@ -366,11 +369,12 @@
         return;
       }
 
-      if (state.cur === 1 && primary) {
+      if (state.cur === 1 && primary && helperSwappedSecondary) {
         const enemyLeft = secondaryAmmo > 0 && hasActiveEnemy(debug, player);
 
         if (pendingReturnToPrimary && !enemyLeft) {
           pendingReturnToPrimary = false;
+          helperSwappedSecondary = false;
           tookDamageUntil = 0;
           swapCooldownUntil = now + SWAP_COOLDOWN_MS;
           state.swap(0);
@@ -384,6 +388,7 @@
           if (firing) {
             swappedToSecondaryAt = now;
           } else if (now - swappedToSecondaryAt >= IDLE_RETURN_DELAY_MS && sinceFire >= IDLE_SINCE_FIRE_SEC) {
+            helperSwappedSecondary = false;
             tookDamageUntil = 0;
             swapCooldownUntil = now + SWAP_COOLDOWN_MS;
             state.swap(0);
@@ -404,6 +409,7 @@
           primaryEmptyHandled = true;
         }
 
+        helperSwappedSecondary = true;
         tookDamageUntil = 0;
         swappedToSecondaryAt = now;
         swapCooldownUntil = now + SWAP_COOLDOWN_MS;

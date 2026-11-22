@@ -73,13 +73,12 @@
         ? 'border: 1px solid rgba(167, 139, 250, 0.85)'
         : 'border: 1px solid rgba(255, 255, 255, 0.22)',
       isGui
-        ? 'background: rgba(24, 18, 42, 0.84)'
-        : 'background: rgba(16, 18, 26, 0.78)',
+        ? 'background: rgba(24, 18, 42, 0.90)'
+        : 'background: rgba(16, 18, 26, 0.86)',
       'color: #f3f4f6',
       'font: 600 12px/32px system-ui, -apple-system, sans-serif',
       'letter-spacing: 0.2px',
-      'box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35)',
-      'backdrop-filter: blur(6px)',
+      'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32)',
       'pointer-events: auto',
       'touch-action: none',
       'user-select: none',

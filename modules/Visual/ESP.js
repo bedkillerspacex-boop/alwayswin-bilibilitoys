@@ -325,7 +325,8 @@
         return;
       }
 
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 2;
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       const width = Math.max(1, Math.round(window.innerWidth));
       const height = Math.max(1, Math.round(window.innerHeight));
       const pixelWidth = Math.round(width * dpr);
@@ -391,27 +392,42 @@
       return lower.concat(upper);
     }
 
+    let lastOverlayDrawAt = 0;
+
     function draw() {
+      if (!bridge.active || !config.enabled) {
+        clearOverlay();
+        restoreBodyMeshes();
+        return;
+      }
+
+      const minInterval = Number(bridge.overlayMinIntervalMs) || 0;
+
+      if (minInterval > 0) {
+        const now = performance.now();
+        if (now - lastOverlayDrawAt < minInterval - 1) {
+          return;
+        }
+        lastOverlayDrawAt = now;
+      }
+
       const canvas = ensureOverlay();
 
       if (!canvas || !overlayCtx) {
         return;
       }
 
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 2;
+
       if (
         window.innerWidth !== overlayWidth ||
         window.innerHeight !== overlayHeight ||
-        Math.min(window.devicePixelRatio || 1, 2) !== overlayDpr
+        Math.min(window.devicePixelRatio || 1, dprCap) !== overlayDpr
       ) {
         resizeOverlay();
       }
 
       clearOverlay();
-
-      if (!bridge.active || !config.enabled) {
-        restoreBodyMeshes();
-        return;
-      }
 
       const gh = bridge.getGH();
 
@@ -580,14 +596,16 @@
     }
 
     function fallbackDrawLoop() {
+      if (renderHookInstalled) {
+        return;
+      }
+
       window.requestAnimationFrame(fallbackDrawLoop);
 
-      if (!renderHookInstalled) {
-        try {
-          draw();
-        } catch {
+      try {
+        draw();
+      } catch {
 
-        }
       }
     }
 

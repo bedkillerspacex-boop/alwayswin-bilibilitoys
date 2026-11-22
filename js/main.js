@@ -159,6 +159,7 @@ if(hintEl){
 }
 
 let lastTs=0;
+let lastVisualDrawAt=0;
 
 /* 单个模块抛错绝不能带走整个渲染循环 */
 function renderModule(mod,dt){
@@ -191,8 +192,17 @@ function frame(ts){
     const clickGui=getMod('ClickGui');
     if(clickGui) clickGui.on=S.open;
 
-    ctx.clearRect(0,0,W,H);
-    for(const m of RENDER_MODS) renderModule(m,dt);
+    const hudCfg=window.SolsticeHudSettings;
+    const minInterval=(!S.open&&!S.hudEditor&&e.p<=0.001&&hudCfg&&hudCfg.active)
+      ?(1000/Math.max(15,hudCfg.maxFps||60))
+      :0;
+
+    if(minInterval<=0||ts-lastVisualDrawAt>=minInterval-1){
+      const visualDt=minInterval>0&&lastVisualDrawAt>0?Math.min(0.1,(ts-lastVisualDrawAt)/1000):dt;
+      lastVisualDrawAt=ts;
+      ctx.clearRect(0,0,W,H);
+      for(const m of RENDER_MODS) renderModule(m,visualDt);
+    }
 
     S.clicked=[false,false,false];
     S.touchTap=false;

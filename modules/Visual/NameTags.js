@@ -132,6 +132,8 @@
     let overlayCtx = null;
     let overlayWidth = 0;
     let overlayHeight = 0;
+    let overlayDpr = 1;
+    let hadContent = false;
     let renderHookInstalled = false;
 
     function ensureOverlay() {
@@ -171,7 +173,8 @@
         return;
       }
 
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 2;
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       const width = Math.max(1, window.innerWidth);
       const height = Math.max(1, window.innerHeight);
       const pixelWidth = Math.round(width * dpr);
@@ -185,27 +188,51 @@
       overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       overlayWidth = width;
       overlayHeight = height;
+      overlayDpr = dpr;
     }
 
     function clearOverlay() {
-      if (!overlayCtx) {
+      if (!overlayCtx || !hadContent) {
         return;
       }
 
       overlayCtx.clearRect(0, 0, overlayWidth, overlayHeight);
+      hadContent = false;
     }
 
+    let lastOverlayDrawAt = 0;
+
     function draw() {
+      if (!config.enabled || bridge.uiOpen) {
+        clearOverlay();
+        return;
+      }
+
+      const minInterval = Number(bridge.overlayMinIntervalMs) || 0;
+
+      if (minInterval > 0) {
+        const now = performance.now();
+        if (now - lastOverlayDrawAt < minInterval - 1) {
+          return;
+        }
+        lastOverlayDrawAt = now;
+      }
+
       if (!ensureOverlay()) {
         return;
       }
 
-      resizeCanvas();
-      clearOverlay();
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 2;
 
-      if (!config.enabled || bridge.uiOpen) {
-        return;
+      if (
+        window.innerWidth !== overlayWidth ||
+        window.innerHeight !== overlayHeight ||
+        Math.min(window.devicePixelRatio || 1, dprCap) !== overlayDpr
+      ) {
+        resizeCanvas();
       }
+
+      clearOverlay();
 
       const gh = bridge.getGH();
 
@@ -301,6 +328,7 @@
           overlayCtx.strokeRect(boxX, boxY, boxW, boxH);
           overlayCtx.fillStyle = color;
           overlayCtx.fillText(label, sx, boxY + (fontSize + 6 * config.scale) * 0.5 + 0.5);
+          hadContent = true;
 
           if (config.health) {
             const hp = Math.max(0, Math.min(100, Number(actor.health ?? 100)));
@@ -350,14 +378,16 @@
     }
 
     function fallbackDrawLoop() {
+      if (renderHookInstalled) {
+        return;
+      }
+
       window.requestAnimationFrame(fallbackDrawLoop);
 
-      if (!renderHookInstalled) {
-        try {
-          draw();
-        } catch {
+      try {
+        draw();
+      } catch {
 
-        }
       }
     }
 

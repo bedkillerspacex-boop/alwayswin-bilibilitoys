@@ -30,6 +30,8 @@
   let latestSelfId = null;
   let latestEngine = null;
   let engineSnapshotHooked = false;
+  let overlayMinIntervalMs = 1000 / 60;
+  let maxDpr = 1.5;
 
   function installEngineSnapshotHook() {
     if (engineSnapshotHooked) {
@@ -298,6 +300,13 @@
         uiOpen = Boolean(data.open);
       }
 
+      return;
+    }
+
+    if (data.channel === 'solstice-hud-settings') {
+      const fps = data.active ? Math.max(15, Math.min(144, Number(data.overlayFps) || 60)) : 144;
+      overlayMinIntervalMs = data.active ? (1000 / fps) : 0;
+      maxDpr = data.active ? Math.max(0.75, Math.min(2, Number(data.maxDpr) || 1.5)) : 2;
       return;
     }
 
@@ -748,7 +757,14 @@
     }
   }
 
+  let worldPatched = false;
+
   function installWorldPatch() {
+    if (worldPatched) {
+      return;
+    }
+
+    worldPatched = true;
     const moduleUrl = new URL('client/simulation.js', location.href).href;
 
     import(moduleUrl).then(({ World }) => {
@@ -782,7 +798,7 @@
       Object.defineProperty(wrappedMove, '__solsticeRuntimeWorldHooked', { value: true });
       prototype.move = wrappedMove;
     }).catch(() => {
-
+      worldPatched = false;
     });
   }
 
@@ -824,6 +840,12 @@
     },
     get latestOnlineJumpHeld() {
       return latestOnlineJumpHeld;
+    },
+    get overlayMinIntervalMs() {
+      return overlayMinIntervalMs;
+    },
+    get maxDpr() {
+      return maxDpr;
     },
     getGH() {
       return window.GH;

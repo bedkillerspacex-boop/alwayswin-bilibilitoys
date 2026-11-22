@@ -72,6 +72,7 @@
         "modules/Visual/ClickGui.js",
         "modules/Visual/Interface.js",
         "modules/Visual/HudEditor.js",
+        "modules/Visual/HUDSettings.js",
         "modules/Visual/Arraylist.js",
         "modules/Visual/ESP.js",
         "modules/Visual/NameTags.js",
