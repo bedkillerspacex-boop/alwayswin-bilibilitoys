@@ -1,15 +1,15 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
-    bootGame();
-    return;
-  }
-
   const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
+
+  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+    bootGame();
+    return;
+  }
 
   let lastSentKey = '';
   let lastSentAt = 0;
@@ -322,7 +322,7 @@
 
       if (world && typeof world.raycast === 'function') {
         const hit = world.raycast(origin, { x: dx / dist, y: dy / dist, z: dz / dist }, dist);
-        return !hit || hit.distance >= dist - 0.08;
+        return !hit || hit.distance <= 0.05 || hit.distance >= dist - 0.08;
       }
 
       return bridge.worldLineClear(origin, point);
@@ -753,6 +753,8 @@
       if (!config.enabled) {
         clearCombatState();
       }
+
+      bridge.setRecoilSuppressed('aura', config.enabled);
     });
 
     bridge.provide('aura', {
