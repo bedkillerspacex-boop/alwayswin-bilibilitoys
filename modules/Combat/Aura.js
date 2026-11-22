@@ -50,8 +50,8 @@
     const turnSpeed = Math.max(60, Math.min(1000, Number(setting(module, 'Turn Speed', 1000)) || 1000));
 
     const ignoreSpawn = Boolean(setting(module, 'Ignore Spawn', false));
-    const ignoreSpawnTime = Math.max(0.05, Math.min(1.5, Number(setting(module, 'Ignore Spawn Time', 0.75)) || 0.75));
-    const ignoreSpawnTimeSetting = module.settings.find((entry) => entry.n === 'Ignore Spawn Time');
+    const ignoreSpawnTime = Math.max(0.05, Math.min(1.5, Number(setting(module, 'Ignore time', 0.75)) || 0.75));
+    const ignoreSpawnTimeSetting = module.settings.find((entry) => entry.n === 'Ignore time');
 
     if (ignoreSpawnTimeSetting) {
       ignoreSpawnTimeSetting.vis = Boolean(ignoreSpawn);
@@ -156,7 +156,7 @@
       },
       {
         t: 'n',
-        n: 'Ignore Spawn Time',
+        n: 'Ignore time',
         d: 'Duration in seconds to ignore newly spawned enemies.',
         v: 0.75,
         min: 0.05,
