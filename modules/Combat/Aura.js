@@ -61,7 +61,8 @@
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       focusAttacker: Boolean(setting(module, 'Focus Attacker', true)),
       deprioritizeSpawn: Boolean(setting(module, 'Deprioritize Spawn', true)),
-      ads: Boolean(setting(module, 'ADS', false))
+      ads: Boolean(setting(module, 'ADS', false)),
+      silentAds: Boolean(setting(module, 'Silent ADS', false))
     };
     const key = JSON.stringify(config);
 
@@ -142,6 +143,12 @@
         n: 'ADS',
         d: 'Automatically aim down sights while attacking.',
         v: 0
+      },
+      {
+        t: 'b',
+        n: 'Silent ADS',
+        d: 'Keep server ADS accuracy without zooming your local camera.',
+        v: 0
       }
     ],
     onRender: syncConfig,
@@ -185,7 +192,8 @@
       wallCheck: true,
       focusAttacker: true,
       deprioritizeSpawn: true,
-      ads: false
+      ads: false,
+      silentAds: false
     };
 
     let target = null;
@@ -531,7 +539,24 @@
       return current + Math.sign(diff) * maxDelta;
     }
 
+    function releaseAds() {
+      if (!syntheticAds) {
+        return;
+      }
+
+      syntheticAds = false;
+
+      if (!bridge.physicalRmb) {
+        bridge.getGH()?.debug?.input?.keys?.delete('Mouse2');
+      }
+    }
+
     function setAds(wanted) {
+      if (!wanted) {
+        releaseAds();
+        return;
+      }
+
       const input = bridge.getGH()?.debug?.input;
 
       if (!input || !input.keys) {
@@ -539,19 +564,30 @@
         return;
       }
 
-      if (wanted && !bridge.physicalRmb) {
+      if (!bridge.physicalRmb) {
         input.keys.add('Mouse2');
         syntheticAds = true;
-      } else {
-        if (!bridge.physicalRmb) {
-          input.keys.delete('Mouse2');
-        }
-        syntheticAds = false;
       }
     }
 
-    function releaseAds() {
-      setAds(false);
+    function applySilentAds() {
+      if (!syntheticAds || !config.silentAds) {
+        return;
+      }
+
+      const debug = bridge.getGH()?.debug;
+      const player = debug?.player;
+      const arsenal = debug?.arsenal;
+
+      if (player) {
+        player.adsK = 0;
+        player.zoom = 1;
+      }
+
+      if (arsenal) {
+        arsenal.ads = 0;
+        arsenal.adsHeld = false;
+      }
     }
 
     function canFireNow() {
@@ -671,6 +707,7 @@
 
       target = picked.actor;
       setAds(config.ads);
+      applySilentAds();
 
       if (config.turnSpeed < 999) {
         const angles = aimAngles(origin, picked.point);
@@ -688,6 +725,20 @@
 
       bridge.requestAutoFire('aura', true);
     }, 30);
+
+    bridge.onAfterArsenalUpdate(applySilentAds, 20);
+
+    bridge.onWorldMove((context) => {
+      if (!syntheticAds || !config.silentAds || !context.input || !(context.input.buttons & 8)) {
+        return;
+      }
+
+      if (context.localInput === context.input) {
+        context.localInput = { ...context.input };
+      }
+
+      context.localInput.buttons &= ~8;
+    }, 20);
 
     bridge.onCombatFire((actor) => {
       if (!config.enabled || !target || !bridge.active || bridge.uiOpen) {
@@ -747,8 +798,13 @@
         wallCheck: data.wallCheck !== false,
         focusAttacker: data.focusAttacker !== false,
         deprioritizeSpawn: data.deprioritizeSpawn !== false,
-        ads: Boolean(data.ads)
+        ads: Boolean(data.ads),
+        silentAds: Boolean(data.silentAds)
       };
+
+      if (!config.ads) {
+        releaseAds();
+      }
 
       if (!config.enabled) {
         clearCombatState();
