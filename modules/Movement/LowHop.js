@@ -47,7 +47,7 @@
     }
 
     const modeSetting = module.settings.find((s) => s.n === 'Mode');
-    const mode = modeSetting?.vals?.[modeSetting.v] === 'Blatant' ? 'Blatant' : 'Legit';
+    const mode = modeSetting?.vals?.[modeSetting.v] || 'Legit';
     const jumpScale = Math.max(0.35, Math.min(0.95, Number(setting(module, 'Jump Scale', 0.72)) || 0.72));
     const config = {
       channel: CHANNEL,
@@ -81,7 +81,7 @@
     nm: { l: 'lowhop', ls: 'low hop', n: 'LowHop', ns: 'Low Hop' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Legit applies smooth extra ascent gravity; Blatant scales takeoff velocity.', v: 0, vals: ['Legit', 'Blatant'] },
+      { t: 'e', n: 'Mode', d: 'Legit applies smooth extra ascent gravity; Blatant scales takeoff velocity; Bug suppresses Y pullback & times server jump.', v: 0, vals: ['Legit', 'Blatant', 'Bug'] },
       { t: 'n', n: 'Jump Scale', d: 'Lower values produce lower jumps.', v: 0.72, min: 0.35, max: 0.95, step: 0.02 }
     ],
     onRender: syncConfig,
@@ -115,8 +115,72 @@
     let mode = 'Legit';
     let jumpScale = 0.72;
     let simPatched = false;
+    let enginePatched = false;
+    let latestServerGround = true;
     let prevOnGround = false;
     let prevJumpCount = null;
+
+    function patchNetInput(engine) {
+      const net = engine?.net;
+
+      if (!net || typeof net.input !== 'function' || net.input.__solsticeLowHopBugPatched) {
+        return;
+      }
+
+      const originalInput = net.input;
+      const wrappedInput = function wrappedLowHopBugInput(input, ...rest) {
+        if (enabled && mode === 'Bug' && input && !latestServerGround && (input.buttons & 1)) {
+          input = { ...input, buttons: input.buttons & ~1 };
+        }
+
+        return originalInput.call(this, input, ...rest);
+      };
+
+      Object.defineProperty(wrappedInput, '__solsticeLowHopBugPatched', { value: true });
+      net.input = wrappedInput;
+    }
+
+    function installEnginePatch() {
+      if (enginePatched) {
+        return;
+      }
+
+      enginePatched = true;
+      const engineUrl = new URL('client/engine.js', location.href).href;
+
+      import(engineUrl)
+        .then(({ Engine }) => {
+          const proto = Engine?.prototype;
+
+          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeLowHopBugPatched) {
+            return;
+          }
+
+          const originalSnapshot = proto.snapshot;
+          const wrappedSnapshot = function wrappedLowHopBugSnapshot(s, ...rest) {
+            patchNetInput(this);
+            const me = s?.players?.find((p) => p.id === this.net?.id);
+
+            if (me) {
+              latestServerGround = Boolean(me.ground);
+            }
+
+            const result = originalSnapshot.call(this, s, ...rest);
+
+            if (enabled && mode === 'Bug' && this.error && !latestServerGround && Math.abs(this.error.y) > 0.05) {
+              this.error.y = 0;
+            }
+
+            return result;
+          };
+
+          Object.defineProperty(wrappedSnapshot, '__solsticeLowHopBugPatched', { value: true });
+          proto.snapshot = wrappedSnapshot;
+        })
+        .catch(() => {
+          enginePatched = false;
+        });
+    }
 
     function installSimPatch() {
       if (simPatched) {
@@ -144,7 +208,7 @@
               return result;
             }
 
-            if (mode === 'Blatant') {
+            if (mode === 'Blatant' || mode === 'Bug') {
               if (wasGround && !wasJumpHeld && !motionState.ground && motionState.vy > 0) {
                 motionState.vy *= jumpScale;
               }
@@ -170,11 +234,14 @@
       }
 
       enabled = Boolean(data.enabled);
-      mode = data.mode === 'Blatant' ? 'Blatant' : 'Legit';
+      mode = data.mode === 'Blatant' || data.mode === 'Bug' ? data.mode : 'Legit';
       jumpScale = Math.max(0.35, Math.min(0.95, Number(data.jumpScale) || 0.72));
 
       if (enabled) {
         installSimPatch();
+        if (mode === 'Bug') {
+          installEnginePatch();
+        }
       }
     });
 
