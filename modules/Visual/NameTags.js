@@ -275,23 +275,24 @@
         const fontSize = Math.round(13 * config.scale);
 
         function drawWeaponIcon(weapon, ix, iy, sc, iconColor) {
+          const w = String(weapon || '').toLowerCase();
           overlayCtx.save();
           overlayCtx.translate(ix, iy);
           overlayCtx.scale(sc, sc);
           overlayCtx.fillStyle = iconColor;
-          if (weapon === 'pistol') {
+          if (w === 'pistol' || w.includes('strix')) {
             overlayCtx.fillRect(0, 2, 11, 3);
             overlayCtx.fillRect(1, 5, 3, 5);
-          } else if (weapon === 'smg') {
+          } else if (w === 'smg' || w.includes('vesper')) {
             overlayCtx.fillRect(0, 2, 13, 3.5);
             overlayCtx.fillRect(2, 5.5, 2.5, 4);
             overlayCtx.fillRect(7, 5.5, 2, 4.5);
-          } else if (weapon === 'shotgun') {
+          } else if (w === 'shotgun' || w.includes('m12')) {
             overlayCtx.fillRect(0, 2.5, 16, 2.5);
             overlayCtx.fillRect(4, 5, 6, 2);
             overlayCtx.fillRect(0, 4.5, 3.5, 3.5);
           } else {
-            // ar / default rifle
+            // ar / kr7
             overlayCtx.fillRect(0, 2.5, 16, 3);
             overlayCtx.fillRect(2, 5.5, 2.5, 4);
             overlayCtx.fillRect(7, 5.5, 2.5, 4.5);

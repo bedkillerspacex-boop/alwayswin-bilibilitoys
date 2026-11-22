@@ -159,7 +159,13 @@
     const metaParts = [];
 
     if (setting(module, 'Show Weapon', true) && showTarget.weapon) {
-      metaParts.push(String(showTarget.weapon).toUpperCase());
+      const wKey = String(showTarget.weapon).toLowerCase();
+      const wLabel = wKey === 'ar' ? 'KR7'
+        : wKey === 'smg' ? 'VESPER9'
+          : wKey === 'shotgun' ? 'M12'
+            : wKey === 'pistol' ? 'STRIX9'
+              : wKey.toUpperCase();
+      metaParts.push(wLabel);
     }
 
     if (setting(module, 'Show Distance', true) && Number.isFinite(showTarget.dist)) {
