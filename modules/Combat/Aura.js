@@ -197,6 +197,7 @@
     };
 
     let target = null;
+    let lockedAttackerId = null;
     let lastHealth = null;
     let engineHooked = false;
     let syntheticAds = false;
@@ -216,34 +217,65 @@
         .then(({ Engine }) => {
           const proto = Engine?.prototype;
 
-          if (!proto || typeof proto.snapshot !== 'function' || proto.snapshot.__solsticeNewAuraPatched) {
+          if (!proto) {
             return;
           }
 
-          const originalSnapshot = proto.snapshot;
-          const wrappedSnapshot = function wrappedNewAuraSnapshot(s, ...rest) {
-            if (s && Array.isArray(s.players)) {
-              const now = performance.now();
+          if (typeof proto.snapshot === 'function' && !proto.snapshot.__solsticeNewAuraPatched) {
+            const originalSnapshot = proto.snapshot;
+            const wrappedSnapshot = function wrappedNewAuraSnapshot(s, ...rest) {
+              if (s && Array.isArray(s.players)) {
+                const now = performance.now();
 
-              for (const p of s.players) {
-                if (p && p.id != null) {
-                  const alive = p.alive !== false;
-                  const wasAlive = prevAliveMap.get(p.id);
+                for (const p of s.players) {
+                  if (p && p.id != null) {
+                    const alive = p.alive !== false;
+                    const wasAlive = prevAliveMap.get(p.id);
 
-                  if (alive && wasAlive === false) {
-                    spawnedAtMap.set(p.id, now);
+                    if (alive && wasAlive === false) {
+                      spawnedAtMap.set(p.id, now);
+                    }
+
+                    if (!alive) {
+                      recentAttackers.delete(p.id);
+
+                      if (p.id === lockedAttackerId) {
+                        lockedAttackerId = null;
+                      }
+                    }
+
+                    prevAliveMap.set(p.id, alive);
                   }
-
-                  prevAliveMap.set(p.id, alive);
                 }
               }
-            }
 
-            return originalSnapshot.call(this, s, ...rest);
-          };
+              return originalSnapshot.call(this, s, ...rest);
+            };
 
-          Object.defineProperty(wrappedSnapshot, '__solsticeNewAuraPatched', { value: true });
-          proto.snapshot = wrappedSnapshot;
+            Object.defineProperty(wrappedSnapshot, '__solsticeNewAuraPatched', { value: true });
+            proto.snapshot = wrappedSnapshot;
+          }
+
+          if (typeof proto.applyEvent === 'function' && !proto.applyEvent.__solsticeNewAuraEventPatched) {
+            const originalApplyEvent = proto.applyEvent;
+            const wrappedApplyEvent = function wrappedNewAuraApplyEvent(e, ...rest) {
+              if (
+                e &&
+                e.type === 'damage' &&
+                this.net?.id != null &&
+                e.id === this.net.id &&
+                e.attacker != null &&
+                e.attacker !== this.net.id
+              ) {
+                recentAttackers.set(e.attacker, performance.now() + ATTACKER_TTL_MS);
+              }
+
+              return originalApplyEvent.call(this, e, ...rest);
+            };
+
+            Object.defineProperty(wrappedApplyEvent, '__solsticeNewAuraEventPatched', { value: true });
+            proto.applyEvent = wrappedApplyEvent;
+          }
         })
         .catch(() => {
           engineHooked = false;
@@ -490,6 +522,14 @@
         return null;
       }
 
+      if (config.focusAttacker && lockedAttackerId != null) {
+        const locked = candidates.find((entry) => entry.actor?.id === lockedAttackerId);
+
+        if (locked) {
+          return locked;
+        }
+      }
+
       candidates.sort((a, b) => {
         if (a.attacker !== b.attacker) {
           return a.attacker ? -1 : 1;
@@ -501,6 +541,11 @@
 
         return a.distance - b.distance;
       });
+
+      if (config.focusAttacker && candidates[0].attacker && candidates[0].actor?.id != null) {
+        lockedAttackerId = candidates[0].actor.id;
+        return candidates[0];
+      }
 
       if (config.mode === 'Single' && target) {
         const sticky = candidates.find((entry) => entry.actor === target);
@@ -664,6 +709,7 @@
 
     function clearCombatState() {
       target = null;
+      lockedAttackerId = null;
       lastHealth = null;
       releaseAds();
       bridge.requestAutoFire('aura', false);
