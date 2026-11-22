@@ -165,10 +165,38 @@
               latestServerGround = Boolean(me.ground);
             }
 
+            if (!enabled || mode !== 'Bug' || !this.predicted || !this.player?.alive || !me?.alive) {
+              return originalSnapshot.call(this, s, ...rest);
+            }
+
+            const before = {
+              y: this.predicted.y,
+              vy: this.predicted.vy,
+              vx: this.predicted.vx,
+              vz: this.predicted.vz,
+              ground: this.predicted.ground
+            };
+
             const result = originalSnapshot.call(this, s, ...rest);
 
-            if (enabled && mode === 'Bug' && this.error && !latestServerGround && Math.abs(this.error.y) > 0.05) {
-              this.error.y = 0;
+            if (this.predicted) {
+              // Preserve horizontal speed if snapshot reconciliation tried to slow us down
+              if (Math.hypot(before.vx, before.vz) > Math.hypot(this.predicted.vx, this.predicted.vz)) {
+                this.predicted.vx = before.vx;
+                this.predicted.vz = before.vz;
+              }
+
+              // One-way downward pullback: reject upward pullback while server is airborne;
+              // accept downward/ground pullback immediately without vertical error lag
+              if (!me.ground && this.predicted.y > before.y + 0.03) {
+                this.predicted.y = before.y;
+                this.predicted.vy = Math.min(this.predicted.vy, before.vy);
+                this.predicted.ground = before.ground;
+              }
+
+              if (this.error) {
+                this.error.y = 0;
+              }
             }
 
             return result;
@@ -208,7 +236,13 @@
               return result;
             }
 
-            if (mode === 'Blatant' || mode === 'Bug') {
+            if (mode === 'Bug') {
+              if (wasGround && !wasJumpHeld && !motionState.ground && motionState.vy > 0) {
+                motionState.vy *= jumpScale;
+              } else if (!motionState.ground) {
+                motionState.vy -= 22 * STEP * 0.85;
+              }
+            } else if (mode === 'Blatant') {
               if (wasGround && !wasJumpHeld && !motionState.ground && motionState.vy > 0) {
                 motionState.vy *= jumpScale;
               }
