@@ -112,6 +112,29 @@
     };
   }
 
+  function getEngineSnapshots() {
+    if (!latestEngine || !latestEngine.active || !Array.isArray(latestEngine.snapshots)) {
+      return null;
+    }
+
+    return latestEngine.snapshots;
+  }
+
+  let shotTickOverride = null;
+  let shotTickOverrideUntil = 0;
+
+  function setShotTickOverride(tick, ttlMs = 150) {
+    const num = Number(tick);
+
+    if (Number.isFinite(num) && num > 0) {
+      shotTickOverride = Math.round(num);
+      shotTickOverrideUntil = performance.now() + Math.max(20, Number(ttlMs) || 150);
+    } else {
+      shotTickOverride = null;
+      shotTickOverrideUntil = 0;
+    }
+  }
+
   function installShotTickFix() {
     function rewrite(data) {
       if (!active) {
@@ -119,8 +142,10 @@
       }
 
       const snapshot = getRawSnapshot();
+      const hasOverride = shotTickOverride !== null && performance.now() <= shotTickOverrideUntil;
+      const targetTick = hasOverride ? shotTickOverride : snapshot?.tick;
 
-      if (!snapshot || !Number.isFinite(snapshot.tick) || snapshot.tick <= 0) {
+      if (!Number.isFinite(targetTick) || targetTick <= 0) {
         return data;
       }
 
@@ -141,7 +166,7 @@
             return data;
           }
 
-          message.tick = snapshot.tick;
+          message.tick = targetTick;
           return JSON.stringify(message) + (data.endsWith('\n') ? '\n' : '');
         } catch {
           return data;
@@ -165,7 +190,7 @@
             return data;
           }
 
-          message.tick = snapshot.tick;
+          message.tick = targetTick;
           return new TextEncoder().encode(JSON.stringify(message) + (text.endsWith('\n') ? '\n' : ''));
         } catch {
           return data;
@@ -221,6 +246,7 @@
   const arsenalAfterHooks = [];
   const worldHooks = [];
   const fireHooks = [];
+  const meleeHooks = [];
   const resetHooks = [];
   const configHandlers = new Map();
   const features = new Map();
@@ -667,6 +693,10 @@
     const rawSelf = playing ? getRawSelf() : null;
     const speed = playing && vel ? Math.round(Math.hypot(Number(vel.x) || 0, Number(vel.z) || 0) * 100) / 100 : 0;
     const serverSpeed = rawSelf ? Math.round(Math.hypot(Number(rawSelf.vx) || 0, Number(rawSelf.vz) || 0) * 100) / 100 : 0;
+    const aura = playing ? features.get('aura') : null;
+    const melee = playing ? features.get('meleeaura') : null;
+    const auraTarget = aura && typeof aura.getTargetInfo === 'function' ? aura.getTargetInfo() : null;
+    const meleeReady = Boolean(melee && typeof melee.isReady === 'function' && melee.isReady());
 
     const state = {
       channel: INPUT_CHANNEL,
@@ -678,7 +708,11 @@
       space: active && !uiOpen && physicalSpace,
       playing,
       speed,
-      serverSpeed
+      serverSpeed,
+      slideCooldown: rawSelf ? Math.round((Number(rawSelf.slideCooldown) || 0) * 100) / 100 : 0,
+      sliding: Boolean(rawSelf?.sliding),
+      auraTarget,
+      meleeReady
     };
     const key = JSON.stringify(state);
 
@@ -754,6 +788,30 @@
 
       Object.defineProperty(wrappedFire, '__solsticeRuntimeFireHooked', { value: true });
       combat.fire = wrappedFire;
+    }
+
+    if (combat && typeof combat.melee === 'function' && !combat.melee.__solsticeRuntimeMeleeHooked) {
+      const originalMelee = combat.melee;
+      const wrappedMelee = function wrappedSolsticeCombatMelee(...args) {
+        let direction = args[2];
+
+        for (const entry of meleeHooks) {
+          try {
+            const replacement = entry.hook(args[0], args[1], direction, ...args.slice(3));
+            if (replacement) {
+              direction = replacement;
+            }
+          } catch {
+
+          }
+        }
+
+        args[2] = direction;
+        return originalMelee.apply(this, args);
+      };
+
+      Object.defineProperty(wrappedMelee, '__solsticeRuntimeMeleeHooked', { value: true });
+      combat.melee = wrappedMelee;
     }
   }
 
@@ -866,6 +924,9 @@
     onCombatFire(hook, priority = 0) {
       addHook(fireHooks, hook, priority);
     },
+    onCombatMelee(hook, priority = 0) {
+      addHook(meleeHooks, hook, priority);
+    },
     onReset(hook) {
       resetHooks.push(hook);
     },
@@ -876,6 +937,8 @@
     getRawPlayer,
     getRawSelf,
     getEngineState,
+    getEngineSnapshots,
+    setShotTickOverride,
     worldLineClear,
     worldRayDistance,
     rayAabb,

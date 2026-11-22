@@ -193,10 +193,13 @@
       focusAttacker: true,
       deprioritizeSpawn: true,
       ads: false,
-      silentAds: false
+      silentAds: false,
+      backtrack: true
     };
 
     let target = null;
+    let targetTick = null;
+    let targetInfo = null;
     let lockedAttackerId = null;
     let lastHealth = null;
     let engineHooked = false;
@@ -403,9 +406,7 @@
       return headPts.concat(bodyPts);
     }
 
-    function pickBestAimPoint(actor, origin, world) {
-      const base = resolveTargetBase(actor);
-
+    function pickBestAimPointForBase(base, origin, world) {
       if (!base) {
         return null;
       }
@@ -423,6 +424,30 @@
       }
 
       return null;
+    }
+
+    function pickBestAimPoint(actor, origin, world) {
+      return pickBestAimPointForBase(resolveTargetBase(actor), origin, world);
+    }
+
+    function pickBestTargetShot(actor, origin, world, range) {
+      const currentPt = pickBestAimPoint(actor, origin, world);
+
+      if (currentPt) {
+        const dist = Math.hypot(currentPt.x - origin.x, currentPt.y - origin.y, currentPt.z - origin.z);
+
+        if (dist <= range) {
+          return { point: currentPt, tick: null, backtrackMs: 0, distance: dist };
+        }
+      }
+
+      const bt = typeof bridge.getFeature === 'function' ? bridge.getFeature('backtrack') : null;
+
+      if (!bt || typeof bt.findExposedShot !== 'function') {
+        return null;
+      }
+
+      return bt.findExposedShot(actor, origin, world, range, (base) => pickBestAimPointForBase(base, origin, world));
     }
 
     function isIrcProtected(actor) {
@@ -489,19 +514,9 @@
           continue;
         }
 
-        const point = pickBestAimPoint(actor, origin, world);
+        const shot = pickBestTargetShot(actor, origin, world, range);
 
-        if (!point) {
-          continue;
-        }
-
-        const distance = Math.hypot(
-          point.x - origin.x,
-          point.y - origin.y,
-          point.z - origin.z
-        );
-
-        if (distance > range) {
+        if (!shot) {
           continue;
         }
 
@@ -511,8 +526,10 @@
 
         candidates.push({
           actor,
-          point,
-          distance,
+          point: shot.point,
+          tick: shot.tick,
+          backtrackMs: shot.backtrackMs,
+          distance: shot.distance,
           attacker,
           freshSpawn
         });
@@ -709,10 +726,15 @@
 
     function clearCombatState() {
       target = null;
+      targetTick = null;
+      targetInfo = null;
       lockedAttackerId = null;
       lastHealth = null;
       releaseAds();
       bridge.requestAutoFire('aura', false);
+      if (typeof bridge.setShotTickOverride === 'function') {
+        bridge.setShotTickOverride(null);
+      }
     }
 
     installSnapshotTracker();
@@ -746,12 +768,24 @@
 
       if (!picked) {
         target = null;
+        targetTick = null;
+        targetInfo = null;
         releaseAds();
         bridge.requestAutoFire('aura', false);
+        if (typeof bridge.setShotTickOverride === 'function') {
+          bridge.setShotTickOverride(null);
+        }
         return;
       }
 
       target = picked.actor;
+      targetTick = picked.tick;
+      targetInfo = {
+        name: String(picked.actor?.name || 'Enemy'),
+        health: Math.max(0, Math.min(100, Math.round(Number(picked.actor?.health ?? 100)))),
+        distance: Math.round(picked.distance * 10) / 10,
+        backtrackMs: picked.backtrackMs || 0
+      };
       setAds(config.ads);
       applySilentAds();
 
@@ -808,15 +842,19 @@
         return null;
       }
 
-      const point = pickBestAimPoint(target, origin, engineState?.world || null);
+      const shot = pickBestTargetShot(target, origin, engineState?.world || null, Number(config.range) || 0);
 
-      if (!point) {
+      if (!shot?.point) {
         return null;
       }
 
-      const dx = point.x - origin.x;
-      const dy = point.y - origin.y;
-      const dz = point.z - origin.z;
+      if (typeof bridge.setShotTickOverride === 'function') {
+        bridge.setShotTickOverride(shot.tick, 120);
+      }
+
+      const dx = shot.point.x - origin.x;
+      const dy = shot.point.y - origin.y;
+      const dz = shot.point.z - origin.z;
       const length = Math.hypot(dx, dy, dz);
 
       if (length < 1e-4) {
@@ -862,6 +900,7 @@
     bridge.provide('aura', {
       isSyntheticAds: () => syntheticAds,
       getTarget: () => target,
+      getTargetInfo: () => targetInfo,
       canFireNow,
       getAimPoint: (eye) => {
         if (!target) {
