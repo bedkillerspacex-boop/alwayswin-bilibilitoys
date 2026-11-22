@@ -1,5 +1,7 @@
 # AlwaysWin — GoldenHour
 
+> **进群817198355谢谢喵**
+
 适用于 [GoldenHour](https://www.bilibili.com/toy/golden-hour/index.html) 网页小游戏的浏览器扩展（Chrome / Edge，Manifest V3）。
 纯前端实现，面板用 Canvas 自绘，跑在游戏页面的 MAIN world 里。
 
