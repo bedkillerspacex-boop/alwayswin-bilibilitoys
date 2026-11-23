@@ -331,16 +331,20 @@
               const vKey = String(event.id);
               const prevHp = victimHpMap.has(vKey) ? victimHpMap.get(vKey) : 100;
               const nextHp = Number.isFinite(Number(event.hp)) ? Math.max(0, Math.min(100, Number(event.hp))) : null;
+              const rawAmount = Number.isFinite(Number(event.amount))
+                ? Math.max(0, Math.min(100, Number(event.amount)))
+                : null;
               let realDamage = 0;
 
               if (nextHp !== null && prevHp >= nextHp) {
-                realDamage = Math.min(100, prevHp - nextHp);
-              } else {
-                realDamage = Math.max(0, Math.min(100, Number(event.amount) || 0));
+                const hpDelta = Math.min(100, prevHp - nextHp);
+                realDamage = rawAmount !== null && rawAmount > 0 ? Math.min(hpDelta, rawAmount) : hpDelta;
+              } else if (rawAmount !== null) {
+                realDamage = rawAmount;
               }
 
               if (nextHp !== null) {
-                victimHpMap.set(vKey, nextHp <= 0 ? 100 : nextHp);
+                victimHpMap.set(vKey, nextHp);
               }
 
               if (event.attacker === myId && event.id !== myId) {
@@ -360,7 +364,7 @@
               lastKillKey = kKey;
               lastKillAt = now;
               if (event.victim != null) {
-                victimHpMap.set(String(event.victim), 100);
+                victimHpMap.set(String(event.victim), 0);
               }
 
               const killer = typeof this.actor === 'function' ? this.actor(event.killer) : null;
@@ -394,6 +398,28 @@
 
       enabled = Boolean(data.enabled);
     });
+
+    if (typeof bridge.onTick === 'function') {
+      bridge.onTick((snap) => {
+        if (!enabled || !snap || !Array.isArray(snap.players)) {
+          return;
+        }
+
+        for (let i = 0; i < snap.players.length; i++) {
+          const p = snap.players[i];
+          if (!p || p.id == null) {
+            continue;
+          }
+
+          const hp = Number(p.hp);
+          if (p.alive && Number.isFinite(hp)) {
+            victimHpMap.set(String(p.id), Math.max(0, Math.min(100, hp)));
+          } else if (!p.alive) {
+            victimHpMap.set(String(p.id), 0);
+          }
+        }
+      });
+    }
 
     bridge.onReset(() => {
       postToParent({ type: 'reset' });

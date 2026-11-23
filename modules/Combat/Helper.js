@@ -333,7 +333,7 @@
         autoReloadSlot === state.slot &&
         state.slot &&
         Number(state.slot.ammo) > 0 &&
-        (isFiring(debug, state) || hasActiveEnemy(debug, player))
+        (isFiring(debug, state) || hasActiveEnemy(debug, player) || now < tookDamageUntil)
       ) {
         if (Number(state.slot.ammo) < preReloadAmmo) {
           state.slot.ammo = preReloadAmmo;
@@ -360,6 +360,7 @@
         Number(primary.reserve) > 0 &&
         !isFiring(debug, state) &&
         !hasActiveEnemy(debug, player) &&
+        now >= tookDamageUntil &&
         Number(state.sinceFire) >= 0.25 &&
         typeof state.startReload === 'function'
       ) {
