@@ -221,6 +221,38 @@
       };
     }
 
+    function hasGroundAt(x, y, z, maxDrop = 0.6) {
+      const top = { x, y: y + 0.25, z };
+      const bottom = { x, y: y - maxDrop, z };
+      return !bridge.worldLineClear(top, bottom);
+    }
+
+    function hasSafeGround(x, y, z, dirX = 0, dirZ = 0) {
+      if (!hasGroundAt(x, y, z, 0.55)) {
+        return false;
+      }
+
+      const len = Math.hypot(dirX, dirZ);
+      if (len > 1e-4) {
+        const nx = dirX / len;
+        const nz = dirZ / len;
+        const px = -nz;
+        const pz = nx;
+        // Guard overshoot ahead and capsule edges so sprint momentum never carries off a ledge into void
+        if (!hasGroundAt(x + nx * 0.45, y, z + nz * 0.45, 0.65)) {
+          return false;
+        }
+        if (!hasGroundAt(x + px * 0.3, y, z + pz * 0.3, 0.65)) {
+          return false;
+        }
+        if (!hasGroundAt(x - px * 0.3, y, z - pz * 0.3, 0.65)) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
     function findCoverPeek(context, now) {
       const { player, actors } = context;
       const eyeY = player.pos.y + (player.e?.h ? player.e.h - 0.16 : 1.62);
@@ -289,15 +321,13 @@
             const probeEye = { x: px, y: eyeY, z: pz };
             const probeFeet = { x: px, y: player.pos.y + 0.45, z: pz };
             const curFeet = { x: player.pos.x, y: player.pos.y + 0.45, z: player.pos.z };
-            const floorCheckTop = { x: px, y: player.pos.y + 0.3, z: pz };
-            const floorCheckBottom = { x: px, y: player.pos.y - 0.9, z: pz };
 
             if (!bridge.worldLineClear(curFeet, probeFeet) || !bridge.worldLineClear(eye, probeEye)) {
               break;
             }
 
-            // Do not peek into the void / off a ledge (ray must hit solid ground within 0.9m below feet)
-            if (bridge.worldLineClear(floorCheckTop, floorCheckBottom)) {
+            // Do not peek into the void / off a ledge (center + overshoot + capsule edges must have solid ground)
+            if (!hasSafeGround(px, player.pos.y, pz, perpX * side, perpZ * side)) {
               break;
             }
 
@@ -356,6 +386,36 @@
         forward: Math.max(-1, Math.min(1, -sy * nx - cy * nz)),
         right: Math.max(-1, Math.min(1, cy * nx - sy * nz))
       };
+    }
+
+    function applySteerSafe(player, target, yaw) {
+      if (!target) {
+        return false;
+      }
+
+      const dx = target.x - player.pos.x;
+      const dz = target.z - player.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 0.22) {
+        return false;
+      }
+
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const lookAhead = Math.min(dist, 0.55);
+      if (!hasSafeGround(player.pos.x + nx * lookAhead, player.pos.y, player.pos.z + nz * lookAhead, nx, nz)) {
+        return false;
+      }
+
+      const steer = computeSteer(player.pos, target, yaw);
+      if (steer.arrived) {
+        return false;
+      }
+
+      steerActive = true;
+      steerForward = steer.forward;
+      steerRight = steer.right;
+      return true;
     }
 
     function updatePeek() {
@@ -440,23 +500,21 @@
           }
 
           if (!visible && peekPoint) {
-            const steer = computeSteer(player.pos, peekPoint, yaw);
-
-            if (!steer.arrived) {
-              steerActive = true;
-              steerForward = steer.forward;
-              steerRight = steer.right;
+            if (!applySteerSafe(player, peekPoint, yaw)) {
+              state = 'idle';
+              peekPoint = null;
+              cooldownUntil = now + 200;
+              return;
             }
           }
         } else if (config.mode === 'Smart') {
           // Expose minimum body: stop immediately once enemy head is visible, retract if enemy locks onto us after we shoot
           if (!visible && peekPoint) {
-            const steer = computeSteer(player.pos, peekPoint, yaw);
-
-            if (!steer.arrived) {
-              steerActive = true;
-              steerForward = steer.forward;
-              steerRight = steer.right;
+            if (!applySteerSafe(player, peekPoint, yaw)) {
+              state = 'idle';
+              peekPoint = null;
+              cooldownUntil = now + 200;
+              return;
             }
           } else if (visible && firedAt > 0 && now - firedAt > 260) {
             const snap = bridge.getRawSnapshot?.();
@@ -477,12 +535,11 @@
           }
         } else {
           if (!visible && peekPoint) {
-            const steer = computeSteer(player.pos, peekPoint, yaw);
-
-            if (!steer.arrived) {
-              steerActive = true;
-              steerForward = steer.forward;
-              steerRight = steer.right;
+            if (!applySteerSafe(player, peekPoint, yaw)) {
+              state = 'idle';
+              peekPoint = null;
+              cooldownUntil = now + 200;
+              return;
             }
           }
         }
@@ -548,9 +605,13 @@
           return;
         }
 
-        steerActive = true;
-        steerForward = anchorSteer.forward;
-        steerRight = anchorSteer.right;
+        if (!applySteerSafe(player, anchor, yaw)) {
+          state = 'idle';
+          anchor = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
+          coverBreakPos = null;
+          coverBreakAt = 0;
+          cooldownUntil = now + 260;
+        }
       }
     }
 
