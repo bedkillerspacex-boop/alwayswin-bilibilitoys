@@ -293,6 +293,9 @@
 
   function installGame(bridge) {
     let enabled = false;
+    const victimHpMap = new Map();
+    let lastKillKey = '';
+    let lastKillAt = 0;
 
     function postToParent(payload) {
       try {
@@ -320,14 +323,46 @@
           if (enabled && event) {
             const myId = this.net?.id;
 
-            if (event.type === 'damage' && event.attacker === myId && event.id !== myId) {
-              postToParent({
-                type: 'hit',
-                head: Boolean(event.head),
-                kill: Number(event.hp) <= 0,
-                amount: Number(event.amount) || 0
-              });
+            if (event.type === 'spawn' && event.id != null) {
+              victimHpMap.set(String(event.id), 100);
+            } else if (event.type === 'round-start') {
+              victimHpMap.clear();
+            } else if (event.type === 'damage' && event.id != null) {
+              const vKey = String(event.id);
+              const prevHp = victimHpMap.has(vKey) ? victimHpMap.get(vKey) : 100;
+              const nextHp = Number.isFinite(Number(event.hp)) ? Math.max(0, Math.min(100, Number(event.hp))) : null;
+              let realDamage = 0;
+
+              if (nextHp !== null && prevHp >= nextHp) {
+                realDamage = Math.min(100, prevHp - nextHp);
+              } else {
+                realDamage = Math.max(0, Math.min(100, Number(event.amount) || 0));
+              }
+
+              if (nextHp !== null) {
+                victimHpMap.set(vKey, nextHp <= 0 ? 100 : nextHp);
+              }
+
+              if (event.attacker === myId && event.id !== myId) {
+                postToParent({
+                  type: 'hit',
+                  head: Boolean(event.head),
+                  kill: nextHp !== null ? nextHp <= 0 : false,
+                  amount: realDamage
+                });
+              }
             } else if (event.type === 'kill') {
+              const now = performance.now();
+              const kKey = `${event.killer}:${event.victim}`;
+              if (kKey === lastKillKey && now - lastKillAt < 250) {
+                return result;
+              }
+              lastKillKey = kKey;
+              lastKillAt = now;
+              if (event.victim != null) {
+                victimHpMap.set(String(event.victim), 100);
+              }
+
               const killer = typeof this.actor === 'function' ? this.actor(event.killer) : null;
               const victim = typeof this.actor === 'function' ? this.actor(event.victim) : null;
               postToParent({

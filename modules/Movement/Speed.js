@@ -45,12 +45,20 @@
 
     const modeSetting = module.settings.find((s) => s.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'SlideHop' ? 'SlideHop' : 'LegitHop';
+    const slideSupportSetting = module.settings.find((s) => s.n === 'Slide Support');
+    const slideSupport = slideSupportSetting ? Boolean(slideSupportSetting.v) : true;
+
+    if (slideSupportSetting) {
+      slideSupportSetting.vis = mode === 'LegitHop';
+    }
+
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'speed',
       enabled: Boolean(module.on),
-      mode
+      mode,
+      slideSupport
     };
     const key = JSON.stringify(config);
 
@@ -82,6 +90,12 @@
         d: 'LegitHop jumps on ground contact; SlideHop chains server 9.75-11 m/s slide boosts.',
         v: 0,
         vals: ['LegitHop', 'SlideHop']
+      },
+      {
+        t: 'b',
+        n: 'Slide Support',
+        d: 'Lets you manually trigger slides and SlideHop while LegitHop is active.',
+        v: 1
       }
     ],
     onRender: syncConfig,
@@ -115,6 +129,7 @@
   function installGame(bridge) {
     let enabled = false;
     let mode = 'LegitHop';
+    let slideSupport = true;
     let syntheticSpace = false;
     let enginePatched = false;
 
@@ -161,10 +176,13 @@
           let buttons = input.buttons | 0;
 
           if (mode === 'LegitHop') {
+            const wantsSlide = slideSupport && (((buttons & 4) || (buttons & 16)) && !serverState.sliding);
             if (!serverState.ground) {
               buttons &= ~1;
-            } else if (moving) {
-              buttons |= 1;
+            } else if (moving && !wantsSlide) {
+              if (!(slideSupport && serverState.sliding && (buttons & 4))) {
+                buttons |= 1;
+              }
             }
           } else if (mode === 'SlideHop') {
             if (moving && !(buttons & 8)) {
@@ -249,8 +267,9 @@
 
       enabled = Boolean(data.enabled);
       mode = data.mode === 'SlideHop' ? 'SlideHop' : 'LegitHop';
+      slideSupport = data.slideSupport !== false;
 
-      if (enabled && mode === 'SlideHop') {
+      if (enabled) {
         installEnginePatch();
       }
 
@@ -271,7 +290,11 @@
       if (!context.motion?.ground) {
         buttons &= ~1;
       } else if (moving) {
-        buttons = context.motion?.jumpHeld ? (buttons & ~1) : (buttons | 1);
+        const wantsSlide = slideSupport && (((buttons & 4) || (buttons & 16)) && !context.motion?.sliding);
+        const holdingCrouchSlide = slideSupport && context.motion?.sliding && (buttons & 4);
+        if (!wantsSlide && !holdingCrouchSlide) {
+          buttons = context.motion?.jumpHeld ? (buttons & ~1) : (buttons | 1);
+        }
       }
 
       input.buttons = buttons;
