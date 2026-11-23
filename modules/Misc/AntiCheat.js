@@ -280,10 +280,12 @@
           prevVy: 0,
           instantHops: 0,
           lastHopAt: 0,
-          hits: 0,
-          headHits: 0,
-          kills: 0,
-          headKills: 0,
+          hsVl: 0,
+          hsVlUpdatedAt: 0,
+          lastHeadAt: 0,
+          lastHeadKillAt: 0,
+          headStreak: 0,
+          lastShotgunBurstAt: 0,
           silentShots: 0
         };
         records.set(key, rec);
@@ -544,6 +546,14 @@
       }
     }
 
+    function decayHsVl(rec, now) {
+      if (rec.hsVlUpdatedAt > 0 && rec.hsVl > 0) {
+        const elapsedSec = Math.max(0, (now - rec.hsVlUpdatedAt) / 1000);
+        rec.hsVl = Math.max(0, rec.hsVl - elapsedSec * 0.65);
+      }
+      rec.hsVlUpdatedAt = now;
+    }
+
     function handleEvent(engine, event) {
       if (!config.enabled || !event) {
         return;
@@ -563,14 +573,43 @@
         }
 
         const rec = getRecord(event.attacker, resolveActorName(event.attacker));
-        rec.hits++;
+        const now = performance.now();
+        decayHsVl(rec, now);
 
-        if (event.head) {
-          rec.headHits++;
+        if (event.weapon === 'shotgun') {
+          if (now - rec.lastShotgunBurstAt < 80) {
+            return;
+          }
+          rec.lastShotgunBurstAt = now;
         }
 
-        if (rec.hits >= 25 && rec.headHits / rec.hits >= 0.85) {
-          flagPlayer(rec, 'HighHS');
+        if (event.head) {
+          const dt = rec.lastHeadAt > 0 ? (now - rec.lastHeadAt) : 9999;
+
+          if (dt <= 450) {
+            rec.headStreak++;
+          } else if (dt <= 1400) {
+            rec.headStreak = Math.max(1, rec.headStreak);
+          } else {
+            rec.headStreak = 1;
+          }
+
+          if (dt <= 350) {
+            rec.hsVl += 1.2 + Math.min(1.8, rec.headStreak * 0.35);
+          } else if (dt <= 900) {
+            rec.hsVl += 0.85 + Math.min(1.0, rec.headStreak * 0.2);
+          } else {
+            rec.hsVl += 0.35;
+          }
+
+          rec.lastHeadAt = now;
+
+          if (rec.hsVl >= 8.5) {
+            flagPlayer(rec, 'HighHS');
+          }
+        } else {
+          rec.headStreak = 0;
+          rec.hsVl = Math.max(0, rec.hsVl - 0.55);
         }
 
         return;
@@ -588,14 +627,19 @@
         }
 
         const rec = getRecord(event.killer, resolveActorName(event.killer));
-        rec.kills++;
+        const now = performance.now();
+        decayHsVl(rec, now);
 
         if (event.head) {
-          rec.headKills++;
-        }
+          const killDt = rec.lastHeadKillAt > 0 ? (now - rec.lastHeadKillAt) : 9999;
+          rec.hsVl += killDt <= 2500 ? 1.4 : 0.4;
+          rec.lastHeadKillAt = now;
 
-        if (rec.kills >= 10 && rec.headKills / rec.kills >= 0.90) {
-          flagPlayer(rec, 'HighHS');
+          if (rec.hsVl >= 8.5) {
+            flagPlayer(rec, 'HighHS');
+          }
+        } else {
+          rec.hsVl = Math.max(0, rec.hsVl - 0.8);
         }
 
         return;
