@@ -132,6 +132,8 @@
     let slideSupport = true;
     let syntheticSpace = false;
     let enginePatched = false;
+    let queuedSlideUntil = 0;
+    let prevSlideInput = false;
 
     const serverState = {
       ground: true,
@@ -176,11 +178,31 @@
           let buttons = input.buttons | 0;
 
           if (mode === 'LegitHop') {
-            const wantsSlide = slideSupport && (((buttons & 4) || (buttons & 16)) && !serverState.sliding);
-            if (!serverState.ground) {
-              buttons &= ~1;
-            } else if (moving && !wantsSlide) {
-              if (!(slideSupport && serverState.sliding && (buttons & 4))) {
+            const slideInputNow = Boolean((buttons & 4) || (buttons & 16));
+            const now = performance.now();
+
+            if (slideSupport && slideInputNow && !prevSlideInput) {
+              queuedSlideUntil = now + 950;
+            }
+            prevSlideInput = slideInputNow;
+
+            if (slideSupport && queuedSlideUntil > now) {
+              if (!serverState.ground) {
+                buttons &= ~1;
+                buttons &= ~4; // keep wasCrouched false in mid-air so slide triggers on landing
+              } else if (moving && !serverState.sliding && !serverState.crouch && serverState.slideCooldown <= 0 && serverState.speed > 5.2) {
+                buttons &= ~1;
+                buttons &= ~4;
+                buttons |= 2 | 16; // trigger deferred slide boost on landing
+                queuedSlideUntil = 0;
+              } else {
+                queuedSlideUntil = 0;
+                if (moving) buttons |= 1;
+              }
+            } else {
+              if (!serverState.ground) {
+                buttons &= ~1;
+              } else if (moving) {
                 buttons |= 1;
               }
             }
@@ -286,13 +308,26 @@
       const input = context.input;
       const moving = Math.hypot(Number(input.forward) || 0, Number(input.right) || 0) > 0.01;
       let buttons = Number(input.buttons) || 0;
+      const now = performance.now();
+      const slideInputNow = Boolean((buttons & 4) || (buttons & 16));
+
+      if (slideSupport && slideInputNow && !prevSlideInput) {
+        queuedSlideUntil = now + 950;
+      }
+      prevSlideInput = slideInputNow;
 
       if (!context.motion?.ground) {
         buttons &= ~1;
+        if (slideSupport && queuedSlideUntil > now) {
+          buttons &= ~4;
+        }
       } else if (moving) {
-        const wantsSlide = slideSupport && (((buttons & 4) || (buttons & 16)) && !context.motion?.sliding);
-        const holdingCrouchSlide = slideSupport && context.motion?.sliding && (buttons & 4);
-        if (!wantsSlide && !holdingCrouchSlide) {
+        if (slideSupport && queuedSlideUntil > now && !context.motion?.sliding && !context.motion?.crouch && (context.motion?.slideCooldown || 0) <= 0 && Math.hypot(context.motion?.vx || 0, context.motion?.vz || 0) > 5.2) {
+          buttons &= ~1;
+          buttons &= ~4;
+          buttons |= 2 | 16;
+          queuedSlideUntil = 0;
+        } else {
           buttons = context.motion?.jumpHeld ? (buttons & ~1) : (buttons | 1);
         }
       }

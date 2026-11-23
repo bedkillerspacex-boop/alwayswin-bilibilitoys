@@ -118,6 +118,7 @@
       silentAim: Boolean(setting(module, 'Silent Aim', true)),
       perfectShoot: Boolean(setting(module, 'Perfect Shoot', true)),
       smoothAim: Boolean(setting(module, 'Smooth Aim', true)),
+      flagVl: Math.max(3, Math.min(20, Number(setting(module, 'Flag VL', 6.0)) || 6.0)),
       notify: Boolean(setting(module, 'Notify', true)),
       ignoreSelf: Boolean(setting(module, 'Ignore Self', true))
     };
@@ -193,6 +194,7 @@
       { t: 'b', n: 'Silent Aim', d: 'Flag shots fired far outside the player view angle.', v: 1 },
       { t: 'b', n: 'Perfect Shoot', d: 'Flag instant kills the moment an enemy exposes from cover.', v: 1 },
       { t: 'b', n: 'Smooth Aim', d: 'Flag robotic constant-velocity smooth aiming across kills.', v: 1 },
+      { t: 'n', n: 'Flag VL', d: 'VL threshold required to flag and notify.', v: 6.0, min: 3.0, max: 20.0, step: 0.5 },
       { t: 'b', n: 'Notify', d: 'Show a notification when a cheater is flagged.', v: 1 },
       { t: 'b', n: 'Flag Sound', d: 'Play a sound when a cheater is flagged.', v: 1 },
       { t: 'e', n: 'Sound Mode', d: 'The alert sound played when a cheater is flagged.', v: 0, vals: ['Alert', 'Chime', 'Cash', 'Windows', 'Mario', 'Fard'] },
@@ -237,6 +239,7 @@
       silentAim: true,
       perfectShoot: true,
       smoothAim: true,
+      flagVl: 6.0,
       notify: true,
       ignoreSelf: true
     };
@@ -350,7 +353,7 @@
       spinVl: 1.2,
       speedVl: 0.8,
       jumpVl: 0.7,
-      hsVl: 0.65,
+      hsVl: 0.85,
       silentVl: 0.5,
       perfectShootVl: 0.35,
       smoothAimVl: 0.35
@@ -375,8 +378,9 @@
     function addVl(rec, field, delta, threshold, reason, now) {
       decayAllVl(rec, now);
       rec[field] = Math.max(0, (rec[field] || 0) + delta);
+      const effectiveThreshold = Math.max(threshold, config.flagVl || 6.0);
 
-      if (rec[field] >= threshold) {
+      if (rec[field] >= effectiveThreshold) {
         flagPlayer(rec, reason);
       }
     }
@@ -623,6 +627,8 @@
         x: Number(p.x) || 0,
         y: Number(p.y) || 0,
         z: Number(p.z) || 0,
+        yaw: Number(p.yaw) || 0,
+        pitch: Number(p.pitch) || 0,
         h,
         alive: Boolean(p.alive)
       });
@@ -691,6 +697,23 @@
         const exposedMs = now - firstVisibleAt;
 
         if (exposedMs >= 0 && exposedMs <= 165) {
+          // If the attacker was already pre-aiming near the victim before exposure (no large flick), do not add VL
+          const preSample = aHist.find((s) => s.t >= firstVisibleAt - 220 && s.t <= firstVisibleAt) || aHist[0];
+          const vPreSample = vHist.find((s) => s.t >= preSample.t) || latestV;
+          if (preSample && vPreSample) {
+            const dx = vPreSample.x - preSample.x;
+            const dz = vPreSample.z - preSample.z;
+            const hLen = Math.hypot(dx, dz);
+            if (hLen > 0.5) {
+              const fx = -Math.sin(preSample.yaw);
+              const fz = -Math.cos(preSample.yaw);
+              const preAimDot = (dx * fx + dz * fz) / hLen;
+              if (preAimDot > 0.95) {
+                return null;
+              }
+            }
+          }
+
           return isHead ? 2.8 : 2.1;
         }
       }
@@ -796,18 +819,24 @@
             rec.headStreak = 1;
           }
 
-          let gain = 0.35;
+          let gain = 0.2;
           if (dt <= 350) {
-            gain = 1.2 + Math.min(1.8, rec.headStreak * 0.35);
-          } else if (dt <= 900) {
             gain = 0.85 + Math.min(1.0, rec.headStreak * 0.2);
+          } else if (dt <= 900) {
+            gain = 0.55 + Math.min(0.6, rec.headStreak * 0.12);
           }
 
           rec.lastHeadAt = now;
-          addVl(rec, 'hsVl', gain, 8.5, 'HighHS', now);
+          const hsThreshold = Math.max(11.0, (config.flagVl || 6.0) * 1.6);
+          if (rec.headStreak >= 4) {
+            addVl(rec, 'hsVl', gain, hsThreshold, 'HighHS', now);
+          } else {
+            decayAllVl(rec, now);
+            rec.hsVl = Math.max(0, rec.hsVl + gain);
+          }
         } else {
           rec.headStreak = 0;
-          rec.hsVl = Math.max(0, rec.hsVl - 0.55);
+          rec.hsVl = Math.max(0, rec.hsVl - 0.85);
         }
 
         return;
@@ -832,9 +861,15 @@
           if (event.head) {
             const killDt = rec.lastHeadKillAt > 0 ? (now - rec.lastHeadKillAt) : 9999;
             rec.lastHeadKillAt = now;
-            addVl(rec, 'hsVl', killDt <= 2500 ? 1.4 : 0.4, 8.5, 'HighHS', now);
+            const hsThreshold = Math.max(11.0, (config.flagVl || 6.0) * 1.6);
+            if (rec.headStreak >= 4) {
+              addVl(rec, 'hsVl', killDt <= 2500 ? 1.0 : 0.25, hsThreshold, 'HighHS', now);
+            } else {
+              rec.hsVl = Math.max(0, rec.hsVl + (killDt <= 2500 ? 0.6 : 0.2));
+            }
           } else {
-            rec.hsVl = Math.max(0, rec.hsVl - 0.8);
+            rec.headStreak = 0;
+            rec.hsVl = Math.max(0, rec.hsVl - 1.0);
           }
         }
 
@@ -971,6 +1006,7 @@
         silentAim: data.silentAim !== false,
         perfectShoot: data.perfectShoot !== false,
         smoothAim: data.smoothAim !== false,
+        flagVl: Math.max(3, Math.min(20, Number(data.flagVl) || 6.0)),
         notify: data.notify !== false,
         ignoreSelf: data.ignoreSelf !== false
       };

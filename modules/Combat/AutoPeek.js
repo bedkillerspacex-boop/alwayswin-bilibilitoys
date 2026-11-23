@@ -285,8 +285,15 @@
             const probeEye = { x: px, y: eyeY, z: pz };
             const probeFeet = { x: px, y: player.pos.y + 0.45, z: pz };
             const curFeet = { x: player.pos.x, y: player.pos.y + 0.45, z: player.pos.z };
+            const floorCheckTop = { x: px, y: player.pos.y + 0.3, z: pz };
+            const floorCheckBottom = { x: px, y: player.pos.y - 0.9, z: pz };
 
             if (!bridge.worldLineClear(curFeet, probeFeet) || !bridge.worldLineClear(eye, probeEye)) {
+              break;
+            }
+
+            // Do not peek into the void / off a ledge (ray must hit solid ground within 0.9m below feet)
+            if (bridge.worldLineClear(floorCheckTop, floorCheckBottom)) {
               break;
             }
 
