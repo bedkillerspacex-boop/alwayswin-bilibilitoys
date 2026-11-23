@@ -155,6 +155,7 @@
       name: mod.name,
       enabled: Boolean(mod.on),
       key: mod.key || 0,
+      bindMode: mod.bindMode === 'hold' ? 'hold' : 'toggle',
       settings: mod.settings.map(serializeSetting)
     }));
   }
@@ -163,8 +164,10 @@
     const binds = {};
 
     for (const mod of MODS) {
-      if (mod.key) {
-        binds[mod.name] = mod.key;
+      if (mod.key || mod.bindMode === 'hold') {
+        binds[mod.name] = mod.bindMode === 'hold'
+          ? { key: mod.key || 0, mode: 'hold' }
+          : mod.key;
       }
     }
 
@@ -257,7 +260,13 @@
 
     for (const mod of MODS) {
       if (Object.prototype.hasOwnProperty.call(binds, mod.name)) {
-        mod.key = binds[mod.name] || 0;
+        const entry = binds[mod.name];
+        if (entry && typeof entry === 'object' && Object.prototype.hasOwnProperty.call(entry, 'mode')) {
+          mod.key = entry.key || 0;
+          mod.bindMode = entry.mode === 'hold' ? 'hold' : 'toggle';
+        } else {
+          mod.key = entry || 0;
+        }
       }
     }
 
@@ -314,8 +323,13 @@
 
       if (options.binds === false) {
         /* keep current keybind */
-      } else if (typeof entry.key === 'number') {
-        mod.key = entry.key;
+      } else {
+        if (entry.key !== undefined) {
+          mod.key = entry.key || 0;
+        }
+        if (entry.bindMode === 'hold' || entry.bindMode === 'toggle') {
+          mod.bindMode = entry.bindMode;
+        }
       }
 
       if (mod.name !== 'ClickGui') {

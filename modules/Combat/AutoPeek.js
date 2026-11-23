@@ -164,6 +164,8 @@
     let targetActor = null;
     let stateStartedAt = 0;
     let firedAt = 0;
+    let coverBreakPos = null;
+    let coverBreakAt = 0;
     let cooldownUntil = 0;
     let steerForward = 0;
     let steerRight = 0;
@@ -199,6 +201,8 @@
       targetActor = null;
       stateStartedAt = 0;
       firedAt = 0;
+      coverBreakPos = null;
+      coverBreakAt = 0;
       steerActive = false;
       steerForward = 0;
       steerRight = 0;
@@ -407,6 +411,8 @@
           state = 'peeking';
           stateStartedAt = now;
           firedAt = 0;
+          coverBreakPos = null;
+          coverBreakAt = 0;
         }
 
         return;
@@ -485,10 +491,50 @@
       }
 
       if (state === 'retracting') {
-        const done = !anchor || now - stateStartedAt > 1800 || computeSteer(player.pos, anchor, yaw).arrived;
+        let coverDone = false;
+        if (targetActor && targetActor.alive !== false && targetActor.pos) {
+          const enemyHead = getHeadPoint(targetActor);
+          const stillVisible = bridge.worldLineClear(eye, enemyHead);
+          if (!stillVisible) {
+            if (!coverBreakPos) {
+              coverBreakPos = { x: player.pos.x, z: player.pos.z };
+              coverBreakAt = now;
+            } else if (
+              Math.hypot(player.pos.x - coverBreakPos.x, player.pos.z - coverBreakPos.z) >= 0.38 ||
+              now - coverBreakAt >= 150
+            ) {
+              coverDone = true;
+            }
+          } else {
+            coverBreakPos = null;
+            coverBreakAt = 0;
+          }
+        }
+
+        const anchorSteer = anchor ? computeSteer(player.pos, anchor, yaw) : { arrived: true, forward: 0, right: 0 };
+        let wallBlocked = false;
+        if (anchor && !anchorSteer.arrived) {
+          const dx = anchor.x - player.pos.x;
+          const dz = anchor.z - player.pos.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 0.1) {
+            const nx = dx / d;
+            const nz = dz / d;
+            const curFeet = { x: player.pos.x, y: player.pos.y + 0.45, z: player.pos.z };
+            const stepFeet = { x: player.pos.x + nx * 0.45, y: player.pos.y + 0.45, z: player.pos.z + nz * 0.45 };
+            if (!bridge.worldLineClear(curFeet, stepFeet)) {
+              wallBlocked = true;
+            }
+          }
+        }
+
+        const done = !anchor || now - stateStartedAt > 1800 || anchorSteer.arrived || coverDone || wallBlocked;
 
         if (done) {
           state = 'idle';
+          anchor = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
+          coverBreakPos = null;
+          coverBreakAt = 0;
           cooldownUntil = now + 260;
 
           if (config.autoDisable) {
@@ -502,10 +548,9 @@
           return;
         }
 
-        const steer = computeSteer(player.pos, anchor, yaw);
         steerActive = true;
-        steerForward = steer.forward;
-        steerRight = steer.right;
+        steerForward = anchorSteer.forward;
+        steerRight = anchorSteer.right;
       }
     }
 
