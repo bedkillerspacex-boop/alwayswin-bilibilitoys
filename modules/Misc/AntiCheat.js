@@ -116,6 +116,8 @@
       noJumpDelay: Boolean(setting(module, 'NoJumpDelay', true)),
       highHeadshot: Boolean(setting(module, 'High Headshot', true)),
       silentAim: Boolean(setting(module, 'Silent Aim', true)),
+      perfectShoot: Boolean(setting(module, 'Perfect Shoot', true)),
+      smoothAim: Boolean(setting(module, 'Smooth Aim', true)),
       notify: Boolean(setting(module, 'Notify', true)),
       ignoreSelf: Boolean(setting(module, 'Ignore Self', true))
     };
@@ -187,8 +189,10 @@
       { t: 'b', n: 'Spin / Derp', d: 'Flag abnormal yaw spin or pitch spoofing.', v: 1 },
       { t: 'b', n: 'Bhop Speed', d: 'Flag impossible horizontal speed or sustained speedhop.', v: 1 },
       { t: 'b', n: 'NoJumpDelay', d: 'Flag consecutive zero-delay bunnyhops.', v: 1 },
-      { t: 'b', n: 'High Headshot', d: 'Flag abnormally high headshot hit/kill rate.', v: 1 },
+      { t: 'b', n: 'High Headshot', d: 'Flag rapid consecutive headshot chains (VL decay).', v: 1 },
       { t: 'b', n: 'Silent Aim', d: 'Flag shots fired far outside the player view angle.', v: 1 },
+      { t: 'b', n: 'Perfect Shoot', d: 'Flag instant kills the moment an enemy exposes from cover.', v: 1 },
+      { t: 'b', n: 'Smooth Aim', d: 'Flag robotic constant-velocity smooth aiming across kills.', v: 1 },
       { t: 'b', n: 'Notify', d: 'Show a notification when a cheater is flagged.', v: 1 },
       { t: 'b', n: 'Flag Sound', d: 'Play a sound when a cheater is flagged.', v: 1 },
       { t: 'e', n: 'Sound Mode', d: 'The alert sound played when a cheater is flagged.', v: 0, vals: ['Alert', 'Chime', 'Cash', 'Windows', 'Mario', 'Fard'] },
@@ -231,12 +235,15 @@
       noJumpDelay: true,
       highHeadshot: true,
       silentAim: true,
+      perfectShoot: true,
+      smoothAim: true,
       notify: true,
       ignoreSelf: true
     };
 
     const records = new Map();
     const latestSnapById = new Map();
+    const snapHistoryById = new Map();
     let lastSnapTick = -1;
 
     function wrapAngle(angle) {
@@ -280,13 +287,20 @@
           prevVy: 0,
           instantHops: 0,
           lastHopAt: 0,
+          vlUpdatedAt: 0,
+          spinVl: 0,
+          speedVl: 0,
+          jumpVl: 0,
           hsVl: 0,
-          hsVlUpdatedAt: 0,
+          silentVl: 0,
+          perfectShootVl: 0,
+          smoothAimVl: 0,
           lastHeadAt: 0,
           lastHeadKillAt: 0,
           headStreak: 0,
           lastShotgunBurstAt: 0,
-          silentShots: 0
+          angSamples: [],
+          smoothTrackAt: 0
         };
         records.set(key, rec);
       } else if (name) {
@@ -332,13 +346,48 @@
       }
     }
 
+    const VL_DECAY_RATES = {
+      spinVl: 1.2,
+      speedVl: 0.8,
+      jumpVl: 0.7,
+      hsVl: 0.65,
+      silentVl: 0.5,
+      perfectShootVl: 0.35,
+      smoothAimVl: 0.35
+    };
+
+    function decayAllVl(rec, now) {
+      if (rec.vlUpdatedAt > 0) {
+        const dt = Math.max(0, (now - rec.vlUpdatedAt) / 1000);
+
+        if (dt > 0) {
+          for (const [field, rate] of Object.entries(VL_DECAY_RATES)) {
+            if (rec[field] > 0) {
+              rec[field] = Math.max(0, rec[field] - dt * rate);
+            }
+          }
+        }
+      }
+
+      rec.vlUpdatedAt = now;
+    }
+
+    function addVl(rec, field, delta, threshold, reason, now) {
+      decayAllVl(rec, now);
+      rec[field] = Math.max(0, (rec[field] || 0) + delta);
+
+      if (rec[field] >= threshold) {
+        flagPlayer(rec, reason);
+      }
+    }
+
     function checkSpinDerp(rec, p, now) {
       if (!config.spinDerp) {
         return;
       }
 
       if (Math.abs(p.pitch) > 1.58) {
-        flagPlayer(rec, 'Derp');
+        addVl(rec, 'spinVl', 6.0, 6.0, 'Derp', now);
       }
 
       if (rec.prevYaw !== null && rec.prevAt > 0) {
@@ -361,7 +410,7 @@
             }
 
             if (rec.spinTime >= 0.45 && Math.abs(rec.accumYaw) >= Math.PI * 2.2) {
-              flagPlayer(rec, 'Spin');
+              addVl(rec, 'spinVl', 3.2, 6.0, 'Spin', now);
             }
           } else {
             rec.accumYaw = 0;
@@ -378,8 +427,8 @@
               rec.pitchFlips++;
               rec.lastPitchFlipAt = now;
 
-              if (rec.pitchFlips >= 3) {
-                flagPlayer(rec, 'Derp');
+              if (rec.pitchFlips >= 2) {
+                addVl(rec, 'spinVl', 2.4, 6.0, 'Derp', now);
               }
             }
 
@@ -395,6 +444,73 @@
       if (rec.pitchFlips > 0 && now - rec.lastPitchFlipAt > 1500) {
         rec.pitchFlips = 0;
       }
+    }
+
+    function checkSmoothAim(rec, p, now) {
+      if (!config.smoothAim) {
+        return;
+      }
+
+      if (rec.prevYaw !== null && rec.prevAt > 0) {
+        const dt = (now - rec.prevAt) / 1000;
+
+        if (dt >= 0.015 && dt <= 0.12) {
+          const dyaw = wrapAngle(p.yaw - rec.prevYaw);
+          const dpitch = p.pitch - rec.prevPitch;
+          const angDist = Math.hypot(dyaw, dpitch);
+          const angSpeed = angDist / dt;
+
+          if (angSpeed >= 0.25 && angSpeed <= 7.5) {
+            rec.angSamples.push({ speed: angSpeed, dy: dyaw, dp: dpitch });
+
+            if (rec.angSamples.length > 8) {
+              rec.angSamples.shift();
+            }
+
+            if (rec.angSamples.length >= 6) {
+              let sum = 0;
+              let cosSum = 0;
+              let cosCount = 0;
+
+              for (let i = 0; i < rec.angSamples.length; i++) {
+                sum += rec.angSamples[i].speed;
+
+                if (i > 0) {
+                  const a = rec.angSamples[i - 1];
+                  const b = rec.angSamples[i];
+                  const la = Math.hypot(a.dy, a.dp);
+                  const lb = Math.hypot(b.dy, b.dp);
+
+                  if (la > 1e-4 && lb > 1e-4) {
+                    cosSum += (a.dy * b.dy + a.dp * b.dp) / (la * lb);
+                    cosCount++;
+                  }
+                }
+              }
+
+              const mean = sum / rec.angSamples.length;
+              let varSum = 0;
+
+              for (const sample of rec.angSamples) {
+                const d = sample.speed - mean;
+                varSum += d * d;
+              }
+
+              const stdDev = Math.sqrt(varSum / rec.angSamples.length);
+              const cv = mean > 0 ? stdDev / mean : 1;
+              const avgCos = cosCount > 0 ? cosSum / cosCount : 0;
+
+              if (cv < 0.08 && avgCos > 0.992) {
+                rec.smoothTrackAt = now;
+              }
+            }
+          } else {
+            rec.angSamples.length = 0;
+          }
+        } else if (dt > 0.12) {
+          rec.angSamples.length = 0;
+        }
+      }
 
       rec.prevYaw = p.yaw;
       rec.prevPitch = p.pitch;
@@ -409,8 +525,8 @@
       if (hSpeed > 11.5) {
         rec.highSpeedStreak++;
 
-        if (rec.highSpeedStreak >= 3) {
-          flagPlayer(rec, 'Speed');
+        if (rec.highSpeedStreak >= 2) {
+          addVl(rec, 'speedVl', 2.6, 6.0, 'Speed', now);
         }
       } else {
         rec.highSpeedStreak = 0;
@@ -433,7 +549,7 @@
           }
 
           if (sum / rec.speedSamples.length > 8.25) {
-            flagPlayer(rec, 'Speed');
+            addVl(rec, 'speedVl', 1.8, 6.0, 'Speed', now);
           }
         }
       } else if (rec.speedSamples.length > 0 && now - rec.speedSamples[rec.speedSamples.length - 1].t > 2500) {
@@ -447,8 +563,8 @@
           rec.fastLandings.shift();
         }
 
-        if (rec.fastLandings.length >= 4) {
-          flagPlayer(rec, 'Speed');
+        if (rec.fastLandings.length >= 3) {
+          addVl(rec, 'speedVl', 2.1, 6.0, 'Speed', now);
         }
       }
     }
@@ -483,13 +599,103 @@
           rec.instantHops = 0;
         }
 
-        if (rec.instantHops >= 5) {
-          flagPlayer(rec, 'NoJumpDelay');
+        if (rec.instantHops >= 3) {
+          addVl(rec, 'jumpVl', 1.6, 5.5, 'NoJumpDelay', now);
         }
       }
 
       rec.wasGround = Boolean(p.ground);
       rec.prevVy = Number(p.vy) || 0;
+    }
+
+    function pushSnapHistory(p, now) {
+      const key = String(p.id);
+      let list = snapHistoryById.get(key);
+
+      if (!list) {
+        list = [];
+        snapHistoryById.set(key, list);
+      }
+
+      const h = p.sliding ? 0.95 : p.crouch ? 1.2 : 1.8;
+      list.push({
+        t: now,
+        x: Number(p.x) || 0,
+        y: Number(p.y) || 0,
+        z: Number(p.z) || 0,
+        h,
+        alive: Boolean(p.alive)
+      });
+
+      while (list.length > 0 && now - list[0].t > 1200) {
+        list.shift();
+      }
+    }
+
+    function checkPerfectShoot(attackerId, victimId, isHead, now) {
+      if (!config.perfectShoot || typeof bridge.worldLineClear !== 'function') {
+        return null;
+      }
+
+      const aHist = snapHistoryById.get(String(attackerId));
+      const vHist = snapHistoryById.get(String(victimId));
+
+      if (!aHist || !vHist || aHist.length < 3 || vHist.length < 3) {
+        return null;
+      }
+
+      const latestV = vHist[vHist.length - 1];
+      const latestA = aHist[aHist.length - 1];
+
+      if (!latestA.alive || !latestV.alive) {
+        return null;
+      }
+
+      let firstVisibleAt = null;
+      let hadBlockedBefore = false;
+
+      for (let i = vHist.length - 1; i >= 0; i--) {
+        const vs = vHist[i];
+        if (!vs.alive) {
+          break;
+        }
+
+        // Find closest attacker sample around vs.t
+        let as = latestA;
+        let bestDt = Infinity;
+
+        for (let j = aHist.length - 1; j >= 0; j--) {
+          const dt = Math.abs(aHist[j].t - vs.t);
+          if (dt < bestDt) {
+            bestDt = dt;
+            as = aHist[j];
+          }
+        }
+
+        const eye = { x: as.x, y: as.y + Math.max(0.6, as.h - 0.16), z: as.z };
+        const vHead = { x: vs.x, y: vs.y + Math.max(0.6, vs.h - 0.17), z: vs.z };
+        const vChest = { x: vs.x, y: vs.y + vs.h * 0.58, z: vs.z };
+        const visible = bridge.worldLineClear(eye, vHead) || bridge.worldLineClear(eye, vChest);
+
+        if (visible) {
+          firstVisibleAt = vs.t;
+        } else {
+          if (firstVisibleAt !== null) {
+            hadBlockedBefore = true;
+          }
+          break;
+        }
+      }
+
+      if (hadBlockedBefore && firstVisibleAt !== null) {
+        const exposedMs = now - firstVisibleAt;
+
+        if (exposedMs >= 0 && exposedMs <= 165) {
+          return isHead ? 2.8 : 2.1;
+        }
+      }
+
+      return null;
     }
 
     function processSnapshot() {
@@ -513,6 +719,7 @@
         }
 
         latestSnapById.set(String(p.id), p);
+        pushSnapHistory(p, now);
 
         if (p.bot) {
           continue;
@@ -523,6 +730,7 @@
         }
 
         const rec = getRecord(p.id, resolveActorName(p.id));
+        decayAllVl(rec, now);
 
         if (!p.alive) {
           rec.prevYaw = null;
@@ -535,23 +743,17 @@
           rec.speedSamples.length = 0;
           rec.wasGround = null;
           rec.instantHops = 0;
+          rec.angSamples.length = 0;
           continue;
         }
 
         const hSpeed = Math.hypot(Number(p.vx) || 0, Number(p.vz) || 0);
 
         checkSpinDerp(rec, p, now);
+        checkSmoothAim(rec, p, now);
         checkBhopSpeed(rec, p, hSpeed, now);
         checkNoJumpDelay(rec, p, hSpeed, now);
       }
-    }
-
-    function decayHsVl(rec, now) {
-      if (rec.hsVlUpdatedAt > 0 && rec.hsVl > 0) {
-        const elapsedSec = Math.max(0, (now - rec.hsVlUpdatedAt) / 1000);
-        rec.hsVl = Math.max(0, rec.hsVl - elapsedSec * 0.65);
-      }
-      rec.hsVlUpdatedAt = now;
     }
 
     function handleEvent(engine, event) {
@@ -574,7 +776,7 @@
 
         const rec = getRecord(event.attacker, resolveActorName(event.attacker));
         const now = performance.now();
-        decayHsVl(rec, now);
+        decayAllVl(rec, now);
 
         if (event.weapon === 'shotgun') {
           if (now - rec.lastShotgunBurstAt < 80) {
@@ -594,19 +796,15 @@
             rec.headStreak = 1;
           }
 
+          let gain = 0.35;
           if (dt <= 350) {
-            rec.hsVl += 1.2 + Math.min(1.8, rec.headStreak * 0.35);
+            gain = 1.2 + Math.min(1.8, rec.headStreak * 0.35);
           } else if (dt <= 900) {
-            rec.hsVl += 0.85 + Math.min(1.0, rec.headStreak * 0.2);
-          } else {
-            rec.hsVl += 0.35;
+            gain = 0.85 + Math.min(1.0, rec.headStreak * 0.2);
           }
 
           rec.lastHeadAt = now;
-
-          if (rec.hsVl >= 8.5) {
-            flagPlayer(rec, 'HighHS');
-          }
+          addVl(rec, 'hsVl', gain, 8.5, 'HighHS', now);
         } else {
           rec.headStreak = 0;
           rec.hsVl = Math.max(0, rec.hsVl - 0.55);
@@ -615,7 +813,7 @@
         return;
       }
 
-      if (event.type === 'kill' && config.highHeadshot && event.weapon !== 'melee') {
+      if (event.type === 'kill' && event.weapon !== 'melee') {
         if (event.killer == null || (config.ignoreSelf && myId != null && Number(event.killer) === Number(myId))) {
           return;
         }
@@ -628,18 +826,28 @@
 
         const rec = getRecord(event.killer, resolveActorName(event.killer));
         const now = performance.now();
-        decayHsVl(rec, now);
+        decayAllVl(rec, now);
 
-        if (event.head) {
-          const killDt = rec.lastHeadKillAt > 0 ? (now - rec.lastHeadKillAt) : 9999;
-          rec.hsVl += killDt <= 2500 ? 1.4 : 0.4;
-          rec.lastHeadKillAt = now;
-
-          if (rec.hsVl >= 8.5) {
-            flagPlayer(rec, 'HighHS');
+        if (config.highHeadshot) {
+          if (event.head) {
+            const killDt = rec.lastHeadKillAt > 0 ? (now - rec.lastHeadKillAt) : 9999;
+            rec.lastHeadKillAt = now;
+            addVl(rec, 'hsVl', killDt <= 2500 ? 1.4 : 0.4, 8.5, 'HighHS', now);
+          } else {
+            rec.hsVl = Math.max(0, rec.hsVl - 0.8);
           }
-        } else {
-          rec.hsVl = Math.max(0, rec.hsVl - 0.8);
+        }
+
+        if (config.smoothAim && rec.smoothTrackAt > 0 && now - rec.smoothTrackAt <= 1200) {
+          rec.smoothTrackAt = 0;
+          addVl(rec, 'smoothAimVl', 2.4, 6.0, 'SmoothAim', now);
+        }
+
+        if (config.perfectShoot && event.victim != null) {
+          const psGain = checkPerfectShoot(event.killer, event.victim, Boolean(event.head), now);
+          if (psGain) {
+            addVl(rec, 'perfectShootVl', psGain, 6.0, 'PerfectShoot', now);
+          }
         }
 
         return;
@@ -665,11 +873,7 @@
 
           if (dot < 0.0) {
             const rec = getRecord(event.id, resolveActorName(event.id));
-            rec.silentShots++;
-
-            if (rec.silentShots >= 6) {
-              flagPlayer(rec, 'SilentAim');
-            }
+            addVl(rec, 'silentVl', 1.5, 6.0, 'SilentAim', performance.now());
           }
         }
       }
@@ -702,6 +906,7 @@
     function resetAll() {
       records.clear();
       latestSnapById.clear();
+      snapHistoryById.clear();
       lastSnapTick = -1;
     }
 
@@ -715,6 +920,20 @@
           const id = typeof actorOrId === 'object' ? actorOrId.id : actorOrId;
           const rec = id != null ? records.get(String(id)) : null;
           return Boolean(rec && rec.flags.size > 0);
+        },
+        getVl: (actorOrId) => {
+          if (!config.enabled || actorOrId == null) {
+            return 0;
+          }
+
+          const id = typeof actorOrId === 'object' ? actorOrId.id : actorOrId;
+          const rec = id != null ? records.get(String(id)) : null;
+          if (!rec) {
+            return 0;
+          }
+
+          decayAllVl(rec, performance.now());
+          return rec.spinVl + rec.speedVl + rec.jumpVl + rec.hsVl + rec.silentVl + rec.perfectShootVl + rec.smoothAimVl;
         },
         getInfo: (actorOrId) => {
           if (!config.enabled || actorOrId == null) {
@@ -750,6 +969,8 @@
         noJumpDelay: data.noJumpDelay !== false,
         highHeadshot: data.highHeadshot !== false,
         silentAim: data.silentAim !== false,
+        perfectShoot: data.perfectShoot !== false,
+        smoothAim: data.smoothAim !== false,
         notify: data.notify !== false,
         ignoreSelf: data.ignoreSelf !== false
       };
