@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)][string]$Tag,      # b1.0 / b1.1 / b1.1hotfix
   [string]$Notes = '',
   [switch]$NoUpload
@@ -15,20 +15,21 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 function Convert-Tag([string]$tag) {
-  if ($tag -match '^b(\d+)\.(\d+)(?:-?hotfix|\.(\d+))?$') {
+  if ($tag -match '^[bB](\d+)\.(\d+)(?:-?hotfix|\.(\d+))?$') {
     $major = $Matches[1]
     $minor = $Matches[2]
     $patch = if ($Matches[3]) { $Matches[3] } elseif ($tag -match 'hotfix') { '1' } else { '0' }
     return "$major.$minor.$patch"
   }
-  throw "tag 必须形如 b1.0 / b1.1 / b1.1hotfix"
+  throw "tag 必须形如 B3.4 / B3.3.1 / b1.0"
 }
 
 $version = Convert-Tag $Tag
 $build = Join-Path $root 'build'
 $stage = Join-Path $build 'stage'
-$crxOut = Join-Path $build "solstice-$Tag.crx"
-$keyFile = Join-Path $build 'solstice.pem'
+$crxOut = Join-Path $build "AlwaysWin-$Tag.crx"
+$zipOut = Join-Path $build "AlwaysWin-$Tag.zip"
+$keyFile = Join-Path $build 'alwayswin.pem'
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
@@ -38,14 +39,18 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 $manifestPath = Join-Path $root 'manifest.json'
 $manifest = Get-Content -Raw $manifestPath
 $manifest = [regex]::Replace($manifest, '"version":\s*"[^"]+"', '"version": "' + $version + '"')
+$manifest = [regex]::Replace($manifest, '"version_name":\s*"[^"]+"', '"version_name": "' + $Tag + '"')
 Set-Content -Path $manifestPath -Value $manifest -NoNewline -Encoding utf8
 Write-Host "version -> $version (tag $Tag)"
 
 # ── 2. 暂存（排除开发目录）─────────────────────────────────────────
-$exclude = @('preview', 'build', '.git', 'tools')
+$exclude = @('preview', 'build', '.git', 'tools', '.gitignore')
 Get-ChildItem $root -Force | Where-Object { $exclude -notcontains $_.Name } | ForEach-Object {
   Copy-Item $_.FullName -Destination $stage -Recurse -Force
 }
+
+if (Test-Path $zipOut) { Remove-Item $zipOut -Force }
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipOut -CompressionLevel Optimal
 
 # ── 3. 打包 crx ────────────────────────────────────────────────────
 $edge = @(
