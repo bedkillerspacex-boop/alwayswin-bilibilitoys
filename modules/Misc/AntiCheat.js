@@ -118,6 +118,8 @@
       silentAim: Boolean(setting(module, 'Silent Aim', true)),
       perfectShoot: Boolean(setting(module, 'Perfect Shoot', true)),
       smoothAim: Boolean(setting(module, 'Smooth Aim', true)),
+      rotationSnap: Boolean(setting(module, 'Rotation Snap', true)),
+      aimPrecision: Boolean(setting(module, 'Aim Precision', true)),
       flagVl: Math.max(3, Math.min(20, Number(setting(module, 'Flag VL', 6.0)) || 6.0)),
       notify: Boolean(setting(module, 'Notify', true)),
       ignoreSelf: Boolean(setting(module, 'Ignore Self', true))
@@ -193,7 +195,9 @@
       { t: 'b', n: 'High Headshot', d: 'Flag rapid consecutive headshot chains (VL decay).', v: 1 },
       { t: 'b', n: 'Silent Aim', d: 'Flag shots fired far outside the player view angle.', v: 1 },
       { t: 'b', n: 'Perfect Shoot', d: 'Flag instant kills the moment an enemy exposes from cover.', v: 1 },
-      { t: 'b', n: 'Smooth Aim', d: 'Flag robotic constant-velocity smooth aiming across kills.', v: 1 },
+      { t: 'b', n: 'Smooth Aim', d: 'Flag robotic smooth aiming (Run, Curve, Exponential convergence).', v: 1 },
+      { t: 'b', n: 'Rotation Snap', d: 'Flag silent flick snaps and abnormal fast-turn headshots.', v: 1 },
+      { t: 'b', n: 'Aim Precision', d: 'Flag inhuman angular precision and zero-variance lock.', v: 1 },
       { t: 'n', n: 'Flag VL', d: 'VL threshold required to flag and notify.', v: 6.0, min: 3.0, max: 20.0, step: 0.5 },
       { t: 'b', n: 'Notify', d: 'Show a notification when a cheater is flagged.', v: 1 },
       { t: 'b', n: 'Flag Sound', d: 'Play a sound when a cheater is flagged.', v: 1 },
@@ -239,6 +243,8 @@
       silentAim: true,
       perfectShoot: true,
       smoothAim: true,
+      rotationSnap: true,
+      aimPrecision: true,
       flagVl: 6.0,
       notify: true,
       ignoreSelf: true
@@ -298,12 +304,49 @@
           silentVl: 0,
           perfectShootVl: 0,
           smoothAimVl: 0,
+          snapVl: 0,
+          aimPrecisionVl: 0,
           lastHeadAt: 0,
           lastHeadKillAt: 0,
           headStreak: 0,
           lastShotgunBurstAt: 0,
           angSamples: [],
-          smoothTrackAt: 0
+          smoothTrackAt: 0,
+          samples: [],
+          lastBigTurnAt: 0,
+          lastBigTurnDeg: 0,
+          lastShotEvent: null,
+          flickAttempts: 0,
+          flickHits: 0,
+          flickMisses: 0,
+          pendingFlickShots: [],
+          precSamples: [],
+          precEvalCount: 0,
+          yokaiSmooth: {
+            hist: [],
+            run: 0,
+            runStartT: 0,
+            lastRun: null,
+            curveHist: [],
+            curveSign: 0,
+            curveRun: 0,
+            curveStartT: 0,
+            lastCurve: null,
+            exp: {
+              mode: 0,
+              signY: 0,
+              signP: 0,
+              prevDy: 0,
+              prevDp: 0,
+              startT: 0,
+              samples: 0,
+              total: 0,
+              ratiosY: [],
+              ratiosP: [],
+              flagged: false,
+              last: null
+            }
+          }
         };
         records.set(key, rec);
       } else if (name) {
@@ -356,7 +399,9 @@
       hsVl: 0.85,
       silentVl: 0.5,
       perfectShootVl: 0.35,
-      smoothAimVl: 0.35
+      smoothAimVl: 0.35,
+      snapVl: 0.45,
+      aimPrecisionVl: 0.35
     };
 
     function decayAllVl(rec, now) {
@@ -450,75 +495,408 @@
       }
     }
 
+    const RAD2DEG = 180 / Math.PI;
+    const WEAPON_EXTRA_TOLERANCE_DEG = { ar: 1.5, smg: 1.0, shotgun: 8.0, pistol: 1.5 };
+
+    function wrapDeg(delta) {
+      let d = (delta + 180) % 360;
+      if (d < 0) d += 360;
+      return d - 180;
+    }
+
+    function signChanges(values) {
+      let changes = 0;
+      let prev = 0;
+      for (const value of values) {
+        if (Math.abs(value) <= 1e-6) continue;
+        const sign = Math.sign(value);
+        if (prev && sign !== prev) changes++;
+        prev = sign;
+      }
+      return changes;
+    }
+
+    function dirOf(yaw, pitch) {
+      const cp = Math.cos(pitch);
+      return [-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp];
+    }
+
+    function angleDeg(yawA, pitchA, yawB, pitchB) {
+      const a = dirOf(yawA, pitchA);
+      const b = dirOf(yawB, pitchB);
+      const dot = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+      return Math.acos(dot) * RAD2DEG;
+    }
+
+    function shotPrecisionDeg(origin, dir, point) {
+      const dx = point.x - origin.x;
+      const dy = point.y - origin.y;
+      const dz = point.z - origin.z;
+      const dist = Math.hypot(dx, dy, dz);
+      const dirLen = Math.hypot(dir.x, dir.y, dir.z);
+      if (dist < 1e-4 || dirLen < 1e-4) return null;
+      const dot = Math.max(-1, Math.min(1, (dx * dir.x + dy * dir.y + dz * dir.z) / (dist * dirLen)));
+      return Math.acos(dot) * RAD2DEG;
+    }
+
+    function resetYokaiSmooth(rec) {
+      const s = rec.yokaiSmooth;
+      s.hist.length = 0;
+      s.run = 0;
+      s.runStartT = 0;
+      s.lastRun = null;
+      s.curveHist.length = 0;
+      s.curveSign = 0;
+      s.curveRun = 0;
+      s.curveStartT = 0;
+      s.lastCurve = null;
+      s.exp.mode = 0;
+      s.exp.signY = 0;
+      s.exp.signP = 0;
+      s.exp.prevDy = 0;
+      s.exp.prevDp = 0;
+      s.exp.startT = 0;
+      s.exp.samples = 0;
+      s.exp.total = 0;
+      s.exp.ratiosY.length = 0;
+      s.exp.ratiosP.length = 0;
+      s.exp.flagged = false;
+      s.exp.last = null;
+    }
+
+    function analyzeCurveSmooth(rec, prev, sample, delta) {
+      const dt = sample.t - prev.t;
+      if (dt <= 0) return;
+
+      const c = rec.yokaiSmooth;
+      const reset = () => {
+        c.curveHist.length = 0;
+        c.curveSign = 0;
+        c.curveRun = 0;
+        c.curveStartT = 0;
+      };
+
+      if (dt > 250 || Math.abs(delta) > 60) {
+        reset();
+        return;
+      }
+
+      const sign = Math.sign(delta);
+      if (c.curveSign && sign !== c.curveSign) reset();
+      c.curveSign = sign;
+      c.curveHist.push({ t: sample.t, d: delta });
+      if (c.curveHist.length === 1) c.curveStartT = prev.t;
+
+      const window = 12;
+      while (c.curveHist.length > window + 4) c.curveHist.shift();
+      if (c.curveHist.length < window) return;
+
+      const win = c.curveHist.slice(-window);
+      let sgn = 0;
+      let sum = 0;
+      let minAbs = Infinity;
+      let minD = Infinity;
+      let maxD = -Infinity;
+      for (const it of win) {
+        const s = Math.sign(it.d);
+        if (s === 0 || (sgn !== 0 && s !== sgn)) { reset(); return; }
+        sgn = s;
+        sum += Math.abs(it.d);
+        minAbs = Math.min(minAbs, Math.abs(it.d));
+        minD = Math.min(minD, it.d);
+        maxD = Math.max(maxD, it.d);
+      }
+
+      const mean = sum / win.length;
+      if (mean < 1.8 || minAbs < 0.2) {
+        reset();
+        return;
+      }
+
+      let variance = 0;
+      for (const it of win) {
+        const v = Math.abs(it.d) - mean;
+        variance += v * v;
+      }
+      const cv = Math.sqrt(variance / win.length) / mean;
+      const rangeRatio = (maxD - minD) / mean;
+      if (cv < 0.08 || rangeRatio < 0.45) {
+        reset();
+        return;
+      }
+
+      const acc = [];
+      for (let i = 1; i < win.length; i++) acc.push(win[i].d - win[i - 1].d);
+      let accSum = 0;
+      for (const a of acc) accSum += Math.abs(a);
+      const meanAcc = accSum / acc.length;
+      const accRatio = meanAcc / mean;
+      if (accRatio < 0.015 || accRatio > 0.6) {
+        reset();
+        return;
+      }
+
+      const jerk = [];
+      for (let i = 1; i < acc.length; i++) jerk.push(acc[i] - acc[i - 1]);
+      let jerkSum = 0;
+      for (const j of jerk) jerkSum += Math.abs(j);
+      const meanJerk = jerkSum / jerk.length;
+      const jerkRatio = meanJerk / Math.max(meanAcc, 1e-9);
+      if (jerkRatio > 0.35) {
+        reset();
+        return;
+      }
+
+      const accChanges = signChanges(acc);
+      const jerkChanges = signChanges(jerk);
+      if (accChanges > 1 || jerkChanges > 1) {
+        reset();
+        return;
+      }
+
+      c.curveRun++;
+      c.lastCurve = {
+        endT: sample.t,
+        samples: c.curveRun,
+        duration: sample.t - c.curveStartT
+      };
+    }
+
+    function analyzeExpSmooth(rec, prev, sample, dyaw, dpitch) {
+      const e = rec.yokaiSmooth.exp;
+      const reset = () => {
+        e.mode = 0;
+        e.signY = 0;
+        e.signP = 0;
+        e.prevDy = 0;
+        e.prevDp = 0;
+        e.startT = 0;
+        e.samples = 0;
+        e.total = 0;
+        e.ratiosY.length = 0;
+        e.ratiosP.length = 0;
+        e.flagged = false;
+      };
+      const begin = (mode, sy, sp, ay, ap) => {
+        e.mode = mode;
+        e.signY = sy;
+        e.signP = sp;
+        e.prevDy = ay;
+        e.prevDp = ap;
+        e.startT = prev.t;
+        e.samples = 1;
+        e.total = mode === 2 ? ay + ap : (mode === 1 ? ay : ap);
+        e.ratiosY.length = 0;
+        e.ratiosP.length = 0;
+        e.flagged = false;
+      };
+
+      const dt = sample.t - prev.t;
+      if (dt <= 0 || dt > 250) {
+        reset();
+        return;
+      }
+
+      const ay = Math.abs(dyaw);
+      const ap = Math.abs(dpitch);
+      const actY = ay >= 0.2;
+      const actP = ap >= 0.2;
+      if (!actY && !actP) { reset(); return; }
+      if (actY && !actP && ap > 0.6) { reset(); return; }
+      if (!actY && actP && ay > 0.6) { reset(); return; }
+
+      const sy = actY ? Math.sign(dyaw) : 0;
+      const sp = actP ? Math.sign(dpitch) : 0;
+      if ((actY && !sy) || (actP && !sp)) { reset(); return; }
+      const mode = actY && actP ? 2 : (actY ? 1 : 3);
+
+      if (!e.mode) {
+        begin(mode, sy, sp, ay, ap);
+        return;
+      }
+      if (e.mode === 2 && (actY || actP)) {
+        if ((actY && e.signY && sy !== e.signY) || (actP && e.signP && sp !== e.signP)) {
+          begin(2, sy, sp, ay, ap);
+          return;
+        }
+      } else if (e.mode !== mode ||
+        (actY && e.signY && sy !== e.signY) ||
+        (actP && e.signP && sp !== e.signP)) {
+        begin(mode, sy, sp, ay, ap);
+        return;
+      }
+
+      const ry = actY ? ay / e.prevDy : 1;
+      const rp = actP ? ap / e.prevDp : 1;
+      if ((actY && (ry < 0.30 || ry > 0.98)) ||
+          (actP && (rp < 0.30 || rp > 0.98)) ||
+          (mode === 2 && actY && actP && Math.abs(ry - rp) > 0.06)) {
+        begin(mode, sy, sp, ay, ap);
+        return;
+      }
+
+      if (actY) e.ratiosY.push(ry);
+      if (actP) e.ratiosP.push(rp);
+      while (e.ratiosY.length > 24) e.ratiosY.shift();
+      while (e.ratiosP.length > 24) e.ratiosP.shift();
+      e.prevDy = ay;
+      e.prevDp = ap;
+      e.samples++;
+      e.total += (actY ? ay : 0) + (actP ? ap : 0);
+
+      const duration = sample.t - e.startT;
+      const all = e.ratiosY.concat(e.ratiosP);
+      const n = all.length;
+      if (!n) {
+        begin(mode, sy, sp, ay, ap);
+        return;
+      }
+      const meanY = e.ratiosY.length ? e.ratiosY.reduce((a, b) => a + b, 0) / e.ratiosY.length : 0;
+      const meanP = e.ratiosP.length ? e.ratiosP.reduce((a, b) => a + b, 0) / e.ratiosP.length : 0;
+      const mean = all.reduce((a, b) => a + b, 0) / n;
+      let variance = 0;
+      for (const r of all) variance += (r - mean) ** 2;
+      const std = Math.sqrt(variance / n);
+      const axisDiff = mode === 2 ? Math.abs(meanY - meanP) : 0;
+
+      if (!e.flagged &&
+          e.samples >= 5 &&
+          duration >= 130 &&
+          e.total >= 6 &&
+          std <= 0.06 &&
+          axisDiff <= 0.06) {
+        e.flagged = true;
+        e.last = {
+          endT: sample.t,
+          samples: e.samples,
+          duration,
+          total: e.total
+        };
+        addVl(rec, 'smoothAimVl', 3.6, 6.0, 'SmoothAim', sample.t);
+      }
+
+      if (e.flagged && e.last) {
+        e.last.endT = sample.t;
+        e.last.samples = e.samples;
+        e.last.duration = duration;
+        e.last.total = e.total;
+      }
+    }
+
     function checkSmoothAim(rec, p, now) {
       if (!config.smoothAim) {
         return;
       }
 
-      if (rec.prevYaw !== null && rec.prevAt > 0) {
-        const dt = (now - rec.prevAt) / 1000;
+      const sample = {
+        t: now,
+        yaw: Number(p.yaw),
+        pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, Number(p.pitch)))
+      };
 
-        if (dt >= 0.015 && dt <= 0.12) {
-          const dyaw = wrapAngle(p.yaw - rec.prevYaw);
-          const dpitch = p.pitch - rec.prevPitch;
-          const angDist = Math.hypot(dyaw, dpitch);
-          const angSpeed = angDist / dt;
+      const prev = rec.samples.length ? rec.samples[rec.samples.length - 1] : null;
+      if (prev) {
+        const dt = sample.t - prev.t;
+        if (dt > 0) {
+          const dyaw = wrapDeg((sample.yaw - prev.yaw) * RAD2DEG);
+          const dpitch = (sample.pitch - prev.pitch) * RAD2DEG;
+          const delta = Math.abs(dyaw) >= Math.abs(dpitch) ? dyaw : dpitch;
 
-          if (angSpeed >= 0.25 && angSpeed <= 7.5) {
-            rec.angSamples.push({ speed: angSpeed, dy: dyaw, dp: dpitch });
+          analyzeExpSmooth(rec, prev, sample, dyaw, dpitch);
+          analyzeCurveSmooth(rec, prev, sample, delta);
 
-            if (rec.angSamples.length > 8) {
-              rec.angSamples.shift();
-            }
+          const hist = rec.yokaiSmooth.hist;
+          const resetRun = () => {
+            hist.length = 0;
+            rec.yokaiSmooth.run = 0;
+            rec.yokaiSmooth.runStartT = 0;
+          };
 
-            if (rec.angSamples.length >= 6) {
+          if (dt > 250 || Math.abs(delta) > 45) {
+            resetRun();
+          } else {
+            hist.push({ t: sample.t, d: delta });
+            if (hist.length === 1) rec.yokaiSmooth.runStartT = prev.t;
+            while (hist.length > 16) hist.shift();
+
+            if (hist.length >= 8) {
+              const win = hist.slice(-8);
+              let sign = 0;
               let sum = 0;
-              let cosSum = 0;
-              let cosCount = 0;
+              let minAbs = Infinity;
+              let valid = true;
+              for (const it of win) {
+                const s = Math.sign(it.d);
+                if (s === 0 || (sign !== 0 && s !== sign)) { valid = false; break; }
+                sign = s;
+                sum += Math.abs(it.d);
+                minAbs = Math.min(minAbs, Math.abs(it.d));
+              }
 
-              for (let i = 0; i < rec.angSamples.length; i++) {
-                sum += rec.angSamples[i].speed;
+              if (!valid || minAbs < 0.25) {
+                resetRun();
+              } else {
+                const mean = sum / win.length;
+                if (mean < 3.0) {
+                  resetRun();
+                } else {
+                  let variance = 0;
+                  for (const it of win) {
+                    const v = Math.abs(it.d) - mean;
+                    variance += v * v;
+                  }
+                  const cv = Math.sqrt(variance / win.length) / mean;
+                  let jerk = 0;
+                  for (let i = 1; i < win.length; i++) jerk += Math.abs(win[i].d - win[i - 1].d);
+                  const jerkRatio = jerk / ((win.length - 1) * mean);
 
-                if (i > 0) {
-                  const a = rec.angSamples[i - 1];
-                  const b = rec.angSamples[i];
-                  const la = Math.hypot(a.dy, a.dp);
-                  const lb = Math.hypot(b.dy, b.dp);
-
-                  if (la > 1e-4 && lb > 1e-4) {
-                    cosSum += (a.dy * b.dy + a.dp * b.dp) / (la * lb);
-                    cosCount++;
+                  if (cv > 0.10 || jerkRatio > 0.12) {
+                    resetRun();
+                  } else {
+                    rec.yokaiSmooth.run++;
+                    rec.yokaiSmooth.lastRun = {
+                      endT: sample.t,
+                      samples: rec.yokaiSmooth.run,
+                      duration: sample.t - rec.yokaiSmooth.runStartT,
+                      mean,
+                      cv
+                    };
                   }
                 }
               }
-
-              const mean = sum / rec.angSamples.length;
-              let varSum = 0;
-
-              for (const sample of rec.angSamples) {
-                const d = sample.speed - mean;
-                varSum += d * d;
-              }
-
-              const stdDev = Math.sqrt(varSum / rec.angSamples.length);
-              const cv = mean > 0 ? stdDev / mean : 1;
-              const avgCos = cosCount > 0 ? cosSum / cosCount : 0;
-
-              if (cv < 0.08 && avgCos > 0.992) {
-                rec.smoothTrackAt = now;
-              }
             }
-          } else {
-            rec.angSamples.length = 0;
           }
-        } else if (dt > 0.12) {
-          rec.angSamples.length = 0;
         }
       }
 
       rec.prevYaw = p.yaw;
       rec.prevPitch = p.pitch;
       rec.prevAt = now;
+    }
+
+    function resolveFlickShots(rec, sample, now) {
+      const pending = rec.pendingFlickShots;
+      if (!pending.length) return;
+
+      for (const item of pending) {
+        const preAge = item.shotT - item.pre.t;
+        const postAge = now - item.shotT;
+        if (preAge < 0 || preAge > 120) continue;
+        if (postAge < 0 || postAge > 150) continue;
+
+        const gap = angleDeg(item.pre.yaw, item.pre.pitch, sample.yaw, sample.pitch);
+        const shotDelta = angleDeg(item.pre.yaw, item.pre.pitch, item.shotYaw, item.shotPitch);
+        if (gap > 35 || shotDelta < 25 || shotDelta <= gap + 10) continue;
+
+        rec.flickAttempts++;
+        if (item.hit) rec.flickHits++;
+        else rec.flickMisses++;
+        if (rec.flickAttempts >= 10 && rec.flickHits > rec.flickMisses) {
+          addVl(rec, 'snapVl', 2.2, 6.0, 'RotationSnap', now);
+        }
+      }
+
+      pending.length = 0;
     }
 
     function checkBhopSpeed(rec, p, hSpeed, now) {
@@ -767,15 +1145,42 @@
           rec.wasGround = null;
           rec.instantHops = 0;
           rec.angSamples.length = 0;
+          rec.samples.length = 0;
+          rec.pendingFlickShots.length = 0;
+          resetYokaiSmooth(rec);
           continue;
         }
 
         const hSpeed = Math.hypot(Number(p.vx) || 0, Number(p.vz) || 0);
+        const sample = {
+          t: now,
+          yaw: Number(p.yaw),
+          pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, Number(p.pitch)))
+        };
+
+        if (config.rotationSnap && Number.isFinite(sample.yaw) && Number.isFinite(sample.pitch)) {
+          resolveFlickShots(rec, sample, now);
+          const prevSample = rec.samples.length ? rec.samples[rec.samples.length - 1] : null;
+          if (prevSample) {
+            const stepDeg = angleDeg(prevSample.yaw, prevSample.pitch, sample.yaw, sample.pitch);
+            if (stepDeg >= 100) {
+              rec.lastBigTurnAt = now;
+              rec.lastBigTurnDeg = stepDeg;
+            }
+          }
+        }
 
         checkSpinDerp(rec, p, now);
         checkSmoothAim(rec, p, now);
         checkBhopSpeed(rec, p, hSpeed, now);
         checkNoJumpDelay(rec, p, hSpeed, now);
+
+        if (Number.isFinite(sample.yaw) && Number.isFinite(sample.pitch)) {
+          rec.samples.push(sample);
+          while (rec.samples.length > 64) {
+            rec.samples.shift();
+          }
+        }
       }
     }
 
@@ -786,7 +1191,7 @@
 
       const myId = engine?.net?.id;
 
-      if (event.type === 'damage' && config.highHeadshot && event.weapon !== 'melee') {
+      if (event.type === 'damage' && event.weapon !== 'melee') {
         if (event.attacker == null || (config.ignoreSelf && myId != null && Number(event.attacker) === Number(myId))) {
           return;
         }
@@ -800,6 +1205,77 @@
         const rec = getRecord(event.attacker, resolveActorName(event.attacker));
         const now = performance.now();
         decayAllVl(rec, now);
+
+        if (config.rotationSnap && rec.pendingFlickShots.length) {
+          const latestPending = rec.pendingFlickShots[rec.pendingFlickShots.length - 1];
+          if (now - latestPending.shotT <= 100) {
+            latestPending.hit = true;
+          }
+        }
+
+        if (config.smoothAim) {
+          const ys = rec.yokaiSmooth;
+          if (ys.lastCurve && now - ys.lastCurve.endT <= 160 && ys.lastCurve.duration >= 300 && ys.lastCurve.samples >= 2) {
+            addVl(rec, 'smoothAimVl', 2.4 + (event.head ? 0.7 : 0), 6.0, 'SmoothAim', now);
+            ys.lastCurve = null;
+          } else if (ys.lastRun && now - ys.lastRun.endT <= 200 && ys.lastRun.duration >= 90 && ys.lastRun.samples >= 5) {
+            addVl(rec, 'smoothAimVl', 1.8 + (event.head ? 0.8 : 0), 6.0, 'SmoothAim', now);
+            ys.lastRun = null;
+          }
+          if (ys.exp.last && now - ys.exp.last.endT <= 200) {
+            addVl(rec, 'smoothAimVl', 1.4 + (event.head ? 0.4 : 0), 6.0, 'SmoothAim', now);
+            ys.exp.last = null;
+          }
+        }
+
+        if (event.weapon !== 'shotgun' && event.id != null && snapP?.pos) {
+          const victimSnap = latestSnapById.get(String(event.id));
+          if (victimSnap?.pos) {
+            const dx = victimSnap.pos.x - snapP.pos.x;
+            const dy = victimSnap.pos.y - snapP.pos.y;
+            const dz = victimSnap.pos.z - snapP.pos.z;
+            const dist = Math.hypot(dx, dy, dz);
+            const targetSpeed = Math.hypot(Number(victimSnap.vx) || 0, Number(victimSnap.vz) || 0);
+
+            if (config.rotationSnap && event.head && dist >= 20 && rec.lastBigTurnAt && now - rec.lastBigTurnAt <= 70 && rec.lastBigTurnDeg >= 30) {
+              addVl(rec, 'snapVl', 0.8, 6.0, 'RotationSnap', now);
+              rec.lastBigTurnAt = 0;
+            }
+
+            if (config.aimPrecision && rec.lastShotEvent && now - rec.lastShotEvent.t <= 100 && dist >= 18 && targetSpeed >= 0.6) {
+              const eyeY = Number(snapP.pos.y) + (Number(snapP.h) > 0.5 ? Number(snapP.h) - 0.16 : 1.62);
+              const vEyeY = Number(victimSnap.pos.y) + (Number(victimSnap.h) > 0.5 ? Number(victimSnap.h) - 0.16 : 1.62);
+              const precDeg = shotPrecisionDeg(
+                { x: Number(snapP.pos.x), y: eyeY, z: Number(snapP.pos.z) },
+                rec.lastShotEvent.dir,
+                { x: Number(victimSnap.pos.x), y: vEyeY, z: Number(victimSnap.pos.z) }
+              );
+
+              if (precDeg !== null) {
+                if (event.head && precDeg <= 0.18) {
+                  addVl(rec, 'aimPrecisionVl', (dist >= 30 ? 1.0 : 0.6) + (targetSpeed >= 2 ? 0.3 : 0), 6.0, 'AimPrecision', now);
+                }
+
+                rec.precSamples.push(precDeg);
+                while (rec.precSamples.length > 8) rec.precSamples.shift();
+                rec.precEvalCount++;
+                if (rec.precSamples.length >= 8 && rec.precEvalCount % 4 === 0) {
+                  const n = rec.precSamples.length;
+                  const mean = rec.precSamples.reduce((a, b) => a + b, 0) / n;
+                  const variance = rec.precSamples.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+                  const std = Math.sqrt(variance);
+                  if (mean <= 0.30 && std <= 0.06) {
+                    addVl(rec, 'aimPrecisionVl', 1.6, 6.0, 'AimPrecision', now);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (!config.highHeadshot) {
+          return;
+        }
 
         if (event.weapon === 'shotgun') {
           if (now - rec.lastShotgunBurstAt < 80) {
@@ -873,9 +1349,19 @@
           }
         }
 
-        if (config.smoothAim && rec.smoothTrackAt > 0 && now - rec.smoothTrackAt <= 1200) {
-          rec.smoothTrackAt = 0;
-          addVl(rec, 'smoothAimVl', 2.4, 6.0, 'SmoothAim', now);
+        if (config.smoothAim) {
+          const ys = rec.yokaiSmooth;
+          if (ys.lastCurve && now - ys.lastCurve.endT <= 160 && ys.lastCurve.duration >= 300 && ys.lastCurve.samples >= 2) {
+            addVl(rec, 'smoothAimVl', 2.4 + (event.head ? 0.7 : 0), 6.0, 'SmoothAim', now);
+            ys.lastCurve = null;
+          } else if (ys.lastRun && now - ys.lastRun.endT <= 200 && ys.lastRun.duration >= 90 && ys.lastRun.samples >= 5) {
+            addVl(rec, 'smoothAimVl', 1.8 + (event.head ? 0.8 : 0), 6.0, 'SmoothAim', now);
+            ys.lastRun = null;
+          }
+          if (ys.exp.last && now - ys.exp.last.endT <= 200) {
+            addVl(rec, 'smoothAimVl', 1.4 + (event.head ? 0.4 : 0), 6.0, 'SmoothAim', now);
+            ys.exp.last = null;
+          }
         }
 
         if (config.perfectShoot && event.victim != null) {
@@ -888,7 +1374,7 @@
         return;
       }
 
-      if (event.type === 'shot' && config.silentAim && event.weapon !== 'melee') {
+      if (event.type === 'shot' && event.weapon !== 'melee') {
         if (event.id == null || (config.ignoreSelf && myId != null && Number(event.id) === Number(myId))) {
           return;
         }
@@ -899,16 +1385,74 @@
           return;
         }
 
-        const xzLen = Math.hypot(Number(event.dx) || 0, Number(event.dz) || 0);
+        const now = performance.now();
+        const rec = getRecord(event.id, resolveActorName(event.id));
+        const dx = Number(event.dx) || 0;
+        const dy = Number(event.dy) || 0;
+        const dz = Number(event.dz) || 0;
+        const xzLen = Math.hypot(dx, dz);
+        const dirLen = Math.hypot(dx, dy, dz);
 
-        if (xzLen > 0.5) {
-          const fx = -Math.sin(snapP.yaw);
-          const fz = -Math.cos(snapP.yaw);
-          const dot = ((event.dx * fx) + (event.dz * fz)) / xzLen;
+        if (dirLen > 1e-4) {
+          const shotYaw = Math.atan2(-dx, -dz);
+          const shotPitch = Math.atan2(dy, Math.max(1e-6, xzLen));
+          rec.lastShotEvent = {
+            t: now,
+            dir: { x: dx / dirLen, y: dy / dirLen, z: dz / dirLen },
+            yaw: shotYaw,
+            pitch: shotPitch
+          };
 
-          if (dot < 0.0) {
-            const rec = getRecord(event.id, resolveActorName(event.id));
-            addVl(rec, 'silentVl', 1.5, 6.0, 'SilentAim', performance.now());
+          if (config.rotationSnap && rec.samples.length) {
+            const pre = rec.samples[rec.samples.length - 1];
+            const preAge = now - pre.t;
+            if (preAge >= 0 && preAge <= 120) {
+              rec.pendingFlickShots.push({
+                pre,
+                shotT: now,
+                shotYaw,
+                shotPitch,
+                hit: false
+              });
+              while (rec.pendingFlickShots.length > 8) {
+                rec.pendingFlickShots.shift();
+              }
+            }
+          }
+
+          if (config.silentAim && rec.samples.length) {
+            let bestExcess = Infinity;
+            const weapon = typeof event.weapon === 'string' ? event.weapon : '';
+            const extra = WEAPON_EXTRA_TOLERANCE_DEG[weapon] || 0;
+
+            for (let i = rec.samples.length - 1; i >= 0; i--) {
+              const s = rec.samples[i];
+              const ageMs = now - s.t;
+              if (ageMs > 70) break;
+              if (ageMs < -30) continue;
+              const gap = angleDeg(s.yaw, s.pitch, shotYaw, shotPitch);
+              const prevS = i > 0 ? rec.samples[i - 1] : null;
+              let speed = 0;
+              if (prevS && s.t > prevS.t) {
+                speed = (angleDeg(prevS.yaw, prevS.pitch, s.yaw, s.pitch) * 1000) / (s.t - prevS.t);
+              }
+              const ageSec = Math.abs(ageMs) / 1000;
+              const allowed = Math.min(60, 3.5 + extra + speed * (ageSec + 0.02));
+              if (gap - allowed < bestExcess) {
+                bestExcess = gap - allowed;
+              }
+            }
+
+            if (bestExcess > 0 && bestExcess < Infinity) {
+              addVl(rec, 'silentVl', Math.max(0.8, Math.min(2.4, 0.8 + bestExcess / 6)), 6.0, 'SilentAim', now);
+            } else if (xzLen > 0.5) {
+              const fx = -Math.sin(snapP.yaw);
+              const fz = -Math.cos(snapP.yaw);
+              const dot = (dx * fx + dz * fz) / xzLen;
+              if (dot < 0.0) {
+                addVl(rec, 'silentVl', 1.5, 6.0, 'SilentAim', now);
+              }
+            }
           }
         }
       }
@@ -968,7 +1512,7 @@
           }
 
           decayAllVl(rec, performance.now());
-          return rec.spinVl + rec.speedVl + rec.jumpVl + rec.hsVl + rec.silentVl + rec.perfectShootVl + rec.smoothAimVl;
+          return rec.spinVl + rec.speedVl + rec.jumpVl + rec.hsVl + rec.silentVl + rec.perfectShootVl + rec.smoothAimVl + rec.snapVl + rec.aimPrecisionVl;
         },
         getInfo: (actorOrId) => {
           if (!config.enabled || actorOrId == null) {
@@ -1006,6 +1550,8 @@
         silentAim: data.silentAim !== false,
         perfectShoot: data.perfectShoot !== false,
         smoothAim: data.smoothAim !== false,
+        rotationSnap: data.rotationSnap !== false,
+        aimPrecision: data.aimPrecision !== false,
         flagVl: Math.max(3, Math.min(20, Number(data.flagVl) || 6.0)),
         notify: data.notify !== false,
         ignoreSelf: data.ignoreSelf !== false
