@@ -90,6 +90,8 @@
     let timer = 0;
     let originalCanUse = null;
     let originalProfile = null;
+    let originalWriteProfile = null;
+    const names = ['ar', 'smg', 'shotgun', 'pistol', 'm200'];
 
     function game() {
       return window.GH?.debug?.ctx;
@@ -99,6 +101,58 @@
       return window.GHProgress;
     }
 
+    function mergeProgress(next) {
+      const current = profileApi()?.readProfile?.();
+
+      if (!current?.weapons || !next?.weapons) {
+        return next;
+      }
+
+      let total = 0;
+
+      for (const name of names) {
+        const existing = current.weapons[name];
+        const weapon = next.weapons[name] || (next.weapons[name] = { kills: 0, headshots: 0 });
+
+        weapon.kills = Math.max(Number(weapon.kills) || 0, Number(existing?.kills) || 0);
+        weapon.headshots = Math.max(Number(weapon.headshots) || 0, Number(existing?.headshots) || 0);
+        total += weapon.kills;
+      }
+
+      next.kills = Math.max(total, Number(next.kills) || 0, Number(current.kills) || 0);
+      next.matches = Math.max(0, Number(next.matches) || 0, Number(current.matches) || 0);
+      next.wins = Math.max(0, Number(next.wins) || 0, Number(current.wins) || 0);
+      next.xp = Math.max(0, Number(next.xp) || 0, Number(current.xp) || 0);
+      return next;
+    }
+
+    function installProfileGuard() {
+      if (originalWriteProfile) {
+        return;
+      }
+
+      const api = profileApi();
+
+      if (typeof api?.writeProfile !== 'function') {
+        return;
+      }
+
+      originalWriteProfile = api.writeProfile;
+      api.writeProfile = function guardedWriteProfile(profile) {
+        return originalWriteProfile.call(this, mergeProgress(profile));
+      };
+    }
+
+    function removeProfileGuard() {
+      const api = profileApi();
+
+      if (originalWriteProfile && api?.writeProfile) {
+        api.writeProfile = originalWriteProfile;
+      }
+
+      originalWriteProfile = null;
+    }
+
     function allProfile(profile) {
       const weapons = profile?.weapons;
 
@@ -106,7 +160,6 @@
         return null;
       }
 
-      const names = ['ar', 'smg', 'shotgun', 'pistol'];
       let total = 0;
       let changed = false;
 
@@ -159,6 +212,8 @@
     }
 
     function applyProfile() {
+      installProfileGuard();
+
       const api = profileApi();
       const profile = api?.readProfile?.();
 
@@ -263,6 +318,7 @@
       timer = setInterval(() => {
         if (enabled) {
           applyProfile();
+          refreshMenus();
         }
       }, 1000);
     }
@@ -282,11 +338,13 @@
       enabled = next;
 
       if (enabled) {
+        installProfileGuard();
         unlockWeapons();
         applyProfile();
         startTimer();
       } else {
         stopTimer();
+        removeProfileGuard();
         relockWeapons();
         restoreProfile();
       }
