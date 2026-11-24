@@ -72,7 +72,8 @@
       ignoreSpawn,
       ignoreSpawnTime,
       ads: Boolean(setting(module, 'ADS', false)),
-      silentAds: Boolean(setting(module, 'Silent ADS', false))
+      silentAds: Boolean(setting(module, 'Silent ADS', false)),
+      sniperAutoStop: Boolean(setting(module, 'Sniper Auto Stop', true))
     };
     const key = JSON.stringify(config);
 
@@ -174,6 +175,12 @@
         n: 'Silent ADS',
         d: 'Keep server ADS accuracy without zooming your local camera.',
         v: 0
+      },
+      {
+        t: 'b',
+        n: 'Sniper Auto Stop',
+        d: 'Auto-stop movement and wait for ADS/bolt cycle when using sniper (M200).',
+        v: 1
       }
     ],
     onRender: syncConfig,
@@ -221,6 +228,7 @@
       ignoreSpawnTime: 0.75,
       ads: false,
       silentAds: false,
+      sniperAutoStop: true,
       backtrack: true
     };
 
@@ -231,6 +239,8 @@
     let lastHealth = null;
     let engineHooked = false;
     let syntheticAds = false;
+    let adsStartedAt = 0;
+    let sniperStopActive = false;
     const recentAttackers = new Map();
     const spawnedAtMap = new Map();
     const prevAliveMap = new Map();
@@ -638,6 +648,7 @@
     }
 
     function releaseAds() {
+      adsStartedAt = 0;
       if (!syntheticAds) {
         return;
       }
@@ -659,12 +670,18 @@
 
       if (!input || !input.keys) {
         syntheticAds = false;
+        adsStartedAt = 0;
         return;
       }
 
       if (!bridge.physicalRmb) {
         input.keys.add('Mouse2');
+        if (!syntheticAds) {
+          adsStartedAt = performance.now();
+        }
         syntheticAds = true;
+      } else if (!adsStartedAt) {
+        adsStartedAt = performance.now();
       }
     }
 
@@ -688,6 +705,43 @@
       }
     }
 
+    function isSniperWeapon(arsenal) {
+      const def = arsenal?.slot?.def;
+      return Boolean(def && (def.id === 'm200' || def.cls === 'SNIPER RIFLE'));
+    }
+
+    function isSniperBoltReady(arsenal, debug) {
+      if (!arsenal || arsenal.state !== 'ready' || (arsenal.cool || 0) > 0) {
+        return false;
+      }
+
+      if ((arsenal.pumpWait || 0) > 0 || (arsenal.sprintLock || 0) > 0 || debug?.player?.mode === 'mantle') {
+        return false;
+      }
+
+      return (arsenal.slot?.ammo || 0) > 0;
+    }
+
+    function isSniperAccurate(arsenal, player) {
+      if (!player || player.e?.onGround === false) {
+        return false;
+      }
+
+      if (config.sniperAutoStop) {
+        const hSpeed = Math.hypot(Number(player.vel?.x) || 0, Number(player.vel?.z) || 0);
+        if (hSpeed > 0.35) {
+          return false;
+        }
+      }
+
+      if (config.silentAds && syntheticAds) {
+        const adsMs = (Number(arsenal?.slot?.def?.adsTime) || 0.43) * 1000;
+        return adsStartedAt > 0 && performance.now() - adsStartedAt >= adsMs * 0.92;
+      }
+
+      return (Number(arsenal?.ads) || 0) >= 0.92 || (Number(arsenal?.spread) || 99) <= 0.35;
+    }
+
     function canFireNow() {
       if (!config.enabled || !target) {
         return false;
@@ -696,15 +750,15 @@
       const debug = bridge.getGH()?.debug;
       const arsenal = debug?.arsenal;
 
-      if (!arsenal || arsenal.state !== 'ready' || arsenal.cool > 0) {
+      if (!isSniperBoltReady(arsenal, debug)) {
         return false;
       }
 
-      if ((arsenal.pumpWait || 0) > 0 || debug.player?.mode === 'mantle') {
+      if (isSniperWeapon(arsenal) && !isSniperAccurate(arsenal, debug.player)) {
         return false;
       }
 
-      return (arsenal.slot?.ammo || 0) > 0;
+      return true;
     }
 
     function installSprintLock() {
@@ -766,6 +820,7 @@
       targetInfo = null;
       lockedAttackerId = null;
       lastHealth = null;
+      sniperStopActive = false;
       releaseAds();
       bridge.requestAutoFire('aura', false);
       if (typeof bridge.setShotTickOverride === 'function') {
@@ -806,6 +861,7 @@
         target = null;
         targetTick = null;
         targetInfo = null;
+        sniperStopActive = false;
         releaseAds();
         bridge.requestAutoFire('aura', false);
         if (typeof bridge.setShotTickOverride === 'function') {
@@ -822,6 +878,41 @@
         distance: Math.round(picked.distance * 10) / 10,
         backtrackMs: picked.backtrackMs || 0
       };
+
+      const arsenal = context.debug?.arsenal;
+      const sniper = isSniperWeapon(arsenal);
+
+      if (sniper) {
+        const boltReady = isSniperBoltReady(arsenal, context.debug);
+        const adsWindow = arsenal &&
+          arsenal.state === 'ready' &&
+          (arsenal.cool || 0) <= (Number(arsenal.slot?.def?.adsTime) || 0.43) &&
+          (arsenal.pumpWait || 0) <= 0 &&
+          (arsenal.slot?.ammo || 0) > 0;
+
+        sniperStopActive = Boolean(config.sniperAutoStop && boltReady && context.player?.e?.onGround !== false);
+        setAds(Boolean(config.ads || (adsWindow && (config.silentAds || config.sniperAutoStop))));
+        applySilentAds();
+
+        if (config.turnSpeed < 999) {
+          const angles = aimAngles(origin, picked.point);
+
+          if (angles) {
+            const maxStep = (config.turnSpeed * Math.PI / 180) * Math.max(0.001, Math.min(dt || 0.016, 0.05));
+            context.player.yaw = stepAngle(context.player.yaw, angles.yaw, maxStep);
+            context.player.pitch = bridge.clamp(
+              stepAngle(context.player.pitch, angles.pitch, maxStep),
+              -1.49,
+              1.49
+            );
+          }
+        }
+
+        bridge.requestAutoFire('aura', boltReady && isSniperAccurate(arsenal, context.player));
+        return;
+      }
+
+      sniperStopActive = false;
       setAds(config.ads);
       applySilentAds();
 
@@ -855,6 +946,20 @@
 
       context.localInput.buttons &= ~8;
     }, 20);
+
+    bridge.onWorldMove((context) => {
+      if (!config.enabled || !sniperStopActive || !context?.input) {
+        return;
+      }
+
+      if (context.localInput === context.input) {
+        context.localInput = { ...context.input };
+      }
+
+      context.localInput.forward = 0;
+      context.localInput.right = 0;
+      context.localInput.buttons = (Number(context.localInput.buttons) || 0) & ~16;
+    }, 95);
 
     bridge.onCombatFire((actor) => {
       if (!config.enabled || !target || !bridge.active || bridge.uiOpen) {
@@ -921,7 +1026,8 @@
         ignoreSpawn: Boolean(data.ignoreSpawn),
         ignoreSpawnTime: Math.max(0.05, Math.min(1.5, Number(data.ignoreSpawnTime) || 0.75)),
         ads: Boolean(data.ads),
-        silentAds: Boolean(data.silentAds)
+        silentAds: Boolean(data.silentAds),
+        sniperAutoStop: data.sniperAutoStop !== false
       };
 
       if (!config.ads) {
