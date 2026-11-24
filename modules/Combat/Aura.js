@@ -52,9 +52,15 @@
     const ignoreSpawn = Boolean(setting(module, 'Ignore Spawn', false));
     const ignoreSpawnTime = Math.max(0.05, Math.min(1.5, Number(setting(module, 'Ignore time', 0.75)) || 0.75));
     const ignoreSpawnTimeSetting = module.settings.find((entry) => entry.n === 'Ignore time');
+    const unignoreOnShot = Boolean(setting(module, 'Unignore On Shot', true));
+    const unignoreOnShotSetting = module.settings.find((entry) => entry.n === 'Unignore On Shot');
 
     if (ignoreSpawnTimeSetting) {
       ignoreSpawnTimeSetting.vis = Boolean(ignoreSpawn);
+    }
+
+    if (unignoreOnShotSetting) {
+      unignoreOnShotSetting.vis = Boolean(ignoreSpawn);
     }
 
     const config = {
@@ -71,6 +77,7 @@
       deprioritizeSpawn: Boolean(setting(module, 'Deprioritize Spawn', true)),
       ignoreSpawn,
       ignoreSpawnTime,
+      unignoreOnShot,
       ads: Boolean(setting(module, 'ADS', false)),
       silentAds: Boolean(setting(module, 'Silent ADS', false)),
       sniperAutoStop: Boolean(setting(module, 'Sniper Auto Stop', true))
@@ -166,6 +173,12 @@
       },
       {
         t: 'b',
+        n: 'Unignore On Shot',
+        d: 'Stop ignoring a newly spawned enemy as soon as they fire.',
+        v: 1
+      },
+      {
+        t: 'b',
         n: 'ADS',
         d: 'Automatically aim down sights while attacking.',
         v: 0
@@ -226,6 +239,7 @@
       deprioritizeSpawn: true,
       ignoreSpawn: false,
       ignoreSpawnTime: 0.75,
+      unignoreOnShot: true,
       ads: false,
       silentAds: false,
       sniperAutoStop: true,
@@ -299,6 +313,14 @@
           if (typeof proto.applyEvent === 'function' && !proto.applyEvent.__solsticeNewAuraEventPatched) {
             const originalApplyEvent = proto.applyEvent;
             const wrappedApplyEvent = function wrappedNewAuraApplyEvent(e, ...rest) {
+              if (config.unignoreOnShot && e) {
+                if (e.type === 'shot' && e.id != null) {
+                  spawnedAtMap.delete(e.id);
+                } else if (e.type === 'damage' && e.attacker != null) {
+                  spawnedAtMap.delete(e.attacker);
+                }
+              }
+
               if (
                 e &&
                 e.type === 'damage' &&
@@ -1042,6 +1064,7 @@
         deprioritizeSpawn: data.deprioritizeSpawn !== false,
         ignoreSpawn: Boolean(data.ignoreSpawn),
         ignoreSpawnTime: Math.max(0.05, Math.min(1.5, Number(data.ignoreSpawnTime) || 0.75)),
+        unignoreOnShot: data.unignoreOnShot !== false,
         ads: Boolean(data.ads),
         silentAds: Boolean(data.silentAds),
         sniperAutoStop: data.sniperAutoStop !== false
