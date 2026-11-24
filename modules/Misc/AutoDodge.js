@@ -44,7 +44,8 @@
       range: Math.max(4, Math.min(120, Number(setting(module, 'Range', 55)) || 55)),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       jump: Boolean(setting(module, 'Jump', true)),
-      crouch: Boolean(setting(module, 'Crouch', true))
+      crouch: Boolean(setting(module, 'Crouch', true)),
+      disableWhenSnipe: Boolean(setting(module, 'Disable When Snipe', true))
     };
     const key = JSON.stringify(config);
 
@@ -73,7 +74,8 @@
       { t: 'n', n: 'Range', d: 'Maximum enemy aim distance.', v: 55, min: 4, max: 120, step: 1 },
       { t: 'b', n: 'Wall Check', d: 'Only react to aim rays with clear line of sight.', v: 1 },
       { t: 'b', n: 'Jump', d: 'Use jumps while dodging.', v: 1 },
-      { t: 'b', n: 'Crouch', d: 'Use crouches while dodging.', v: 1 }
+      { t: 'b', n: 'Crouch', d: 'Use crouches while dodging.', v: 1 },
+      { t: 'b', n: 'Disable When Snipe', d: 'Disable AutoDodge while holding a sniper rifle (M200).', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {
@@ -375,7 +377,8 @@
         range: Math.max(4, Math.min(120, Number(data.range) || 55)),
         wallCheck: data.wallCheck !== false,
         jump: data.jump !== false,
-        crouch: data.crouch !== false
+        crouch: data.crouch !== false,
+        disableWhenSnipe: data.disableWhenSnipe !== false
       };
       enabled = Boolean(data.enabled);
 
@@ -395,6 +398,14 @@
       if (!context) {
         release();
         return;
+      }
+
+      if (config.disableWhenSnipe) {
+        const def = context.debug?.arsenal?.slot?.def;
+        if (def && (def.id === 'm200' || def.cls === 'SNIPER RIFLE')) {
+          release();
+          return;
+        }
       }
 
       apply(enemyThreat(context));

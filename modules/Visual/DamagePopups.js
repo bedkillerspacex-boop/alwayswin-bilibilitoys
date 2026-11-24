@@ -126,6 +126,7 @@
     };
 
     const popups = [];
+    const victimHpMap = new Map();
     let overlayCanvas = null;
     let overlayCtx = null;
     let overlayWidth = 0;
@@ -156,10 +157,44 @@
         return;
       }
 
-      const amount = Math.round(Number(event.amount) || 0);
+      const vKey = event.id != null ? String(event.id) : null;
+      const prevHp = vKey && victimHpMap.has(vKey) ? victimHpMap.get(vKey) : 100;
+      const nextHp = Number.isFinite(Number(event.hp)) ? Math.max(0, Math.min(100, Number(event.hp))) : null;
+      const rawAmount = Number.isFinite(Number(event.amount))
+        ? Math.max(0, Math.min(100, Number(event.amount)))
+        : null;
+      let realDamage = 0;
+
+      if (nextHp !== null && prevHp >= nextHp) {
+        const hpDelta = Math.min(100, prevHp - nextHp);
+        realDamage = rawAmount !== null && rawAmount > 0 ? Math.min(hpDelta, rawAmount) : hpDelta;
+      } else if (rawAmount !== null) {
+        realDamage = rawAmount;
+      }
+
+      if (vKey && nextHp !== null) {
+        victimHpMap.set(vKey, nextHp);
+      }
+
+      const amount = Math.round(realDamage);
 
       if (amount <= 0) {
         return;
+      }
+
+      const now = performance.now();
+      const lethal = nextHp !== null ? nextHp <= 0 : Number(event.hp) <= 0;
+
+      if (vKey) {
+        for (let i = popups.length - 1; i >= 0; i--) {
+          const existing = popups[i];
+          if (existing.victimKey === vKey && now - existing.createdAt <= 55) {
+            existing.amount += amount;
+            if (event.head) existing.head = true;
+            if (lethal) existing.lethal = true;
+            return;
+          }
+        }
       }
 
       let x = 0;
@@ -186,6 +221,7 @@
       }
 
       popups.push({
+        victimKey: vKey,
         x,
         y,
         z,
@@ -193,8 +229,8 @@
         vz: (Math.random() - 0.5) * 0.35,
         amount,
         head: Boolean(event.head),
-        lethal: Number(event.hp) <= 0,
-        createdAt: performance.now()
+        lethal,
+        createdAt: now
       });
     }
 
@@ -212,6 +248,11 @@
         try {
           if (event?.type === 'round-start') {
             popups.length = 0;
+            victimHpMap.clear();
+          } else if (event?.type === 'spawn' && event.id != null) {
+            victimHpMap.set(String(event.id), 100);
+          } else if (event?.type === 'kill' && event.victim != null) {
+            victimHpMap.set(String(event.victim), 0);
           } else {
             pushDamagePopup(this, event);
           }

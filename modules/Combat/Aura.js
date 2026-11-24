@@ -729,17 +729,17 @@
 
       if (config.sniperAutoStop) {
         const hSpeed = Math.hypot(Number(player.vel?.x) || 0, Number(player.vel?.z) || 0);
-        if (hSpeed > 0.35) {
+        if (hSpeed > 0.85) {
           return false;
         }
       }
 
       if (config.silentAds && syntheticAds) {
         const adsMs = (Number(arsenal?.slot?.def?.adsTime) || 0.43) * 1000;
-        return adsStartedAt > 0 && performance.now() - adsStartedAt >= adsMs * 0.92;
+        return adsStartedAt > 0 && performance.now() - adsStartedAt >= adsMs * 0.82;
       }
 
-      return (Number(arsenal?.ads) || 0) >= 0.92 || (Number(arsenal?.spread) || 99) <= 0.35;
+      return (Number(arsenal?.ads) || 0) >= 0.82 || (Number(arsenal?.spread) || 99) <= 0.4;
     }
 
     function canFireNow() {
@@ -886,7 +886,7 @@
         const boltReady = isSniperBoltReady(arsenal, context.debug);
         const adsWindow = arsenal &&
           arsenal.state === 'ready' &&
-          (arsenal.cool || 0) <= (Number(arsenal.slot?.def?.adsTime) || 0.43) &&
+          (arsenal.cool || 0) <= Math.max(0.5, (Number(arsenal.slot?.def?.adsTime) || 0.43) + 0.08) &&
           (arsenal.pumpWait || 0) <= 0 &&
           (arsenal.slot?.ammo || 0) > 0;
 
@@ -956,8 +956,25 @@
         context.localInput = { ...context.input };
       }
 
-      context.localInput.forward = 0;
-      context.localInput.right = 0;
+      const player = context.player || bridge.getGH()?.debug?.player;
+      const vx = Number(player?.vel?.x) || 0;
+      const vz = Number(player?.vel?.z) || 0;
+      const hSpeed = Math.hypot(vx, vz);
+
+      if (hSpeed > 0.35 && player) {
+        const yaw = Number(player.yaw) || 0;
+        const sy = Math.sin(yaw);
+        const cy = Math.cos(yaw);
+        // Project horizontal velocity onto player forward (-sy, -cy) and right (cy, -sy) axes to counter-strafe
+        const vForward = -sy * vx - cy * vz;
+        const vRight = cy * vx - sy * vz;
+        context.localInput.forward = Math.max(-1, Math.min(1, -vForward / 2.2));
+        context.localInput.right = Math.max(-1, Math.min(1, -vRight / 2.2));
+      } else {
+        context.localInput.forward = 0;
+        context.localInput.right = 0;
+      }
+
       context.localInput.buttons = (Number(context.localInput.buttons) || 0) & ~16;
     }, 95);
 

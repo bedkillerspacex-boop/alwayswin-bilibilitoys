@@ -104,8 +104,8 @@
         return;
       }
 
-      ctx.save();
       setFont(20, true);
+      ctx.save();
       const metrics = ctx.measureText(label);
       const textHeight = Math.max(
         20,

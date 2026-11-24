@@ -170,6 +170,7 @@
     let steerForward = 0;
     let steerRight = 0;
     let steerActive = false;
+    let stopToShoot = false;
 
     let overlayCanvas = null;
     let overlayCtx = null;
@@ -204,6 +205,7 @@
       coverBreakPos = null;
       coverBreakAt = 0;
       steerActive = false;
+      stopToShoot = false;
       steerForward = 0;
       steerRight = 0;
     }
@@ -420,6 +422,7 @@
 
     function updatePeek() {
       steerActive = false;
+      stopToShoot = false;
       steerForward = 0;
       steerRight = 0;
 
@@ -491,6 +494,10 @@
 
         const enemyHead = getHeadPoint(targetActor);
         const visible = bridge.worldLineClear(eye, enemyHead);
+
+        if (visible) {
+          stopToShoot = true;
+        }
 
         if (config.mode === 'Jiggle') {
           if (firedAt > 0 && now - firedAt >= config.retractDelay) {
@@ -630,7 +637,7 @@
     }, 30);
 
     bridge.onWorldMove((context) => {
-      if (!config.enabled || !steerActive || !context?.input) {
+      if (!config.enabled || (!steerActive && !stopToShoot) || !context?.input) {
         return;
       }
 
@@ -640,10 +647,35 @@
       if (manualMag > 0.01 || hasManualMove()) {
         state = 'idle';
         steerActive = false;
+        stopToShoot = false;
         steerForward = 0;
         steerRight = 0;
         peekPoint = null;
         targetActor = null;
+        return;
+      }
+
+      if (stopToShoot && !steerActive) {
+        const player = context.player || bridge.getGH()?.debug?.player;
+        const vx = Number(player?.vel?.x) || 0;
+        const vz = Number(player?.vel?.z) || 0;
+        const hSpeed = Math.hypot(vx, vz);
+
+        if (hSpeed > 0.35 && player) {
+          const yaw = Number(player.yaw) || 0;
+          const sy = Math.sin(yaw);
+          const cy = Math.cos(yaw);
+          const vForward = -sy * vx - cy * vz;
+          const vRight = cy * vx - sy * vz;
+          input.forward = Math.max(-1, Math.min(1, -vForward / 2.2));
+          input.right = Math.max(-1, Math.min(1, -vRight / 2.2));
+        } else {
+          input.forward = 0;
+          input.right = 0;
+        }
+
+        input.buttons = (Number(input.buttons) || 0) & ~SPRINT_BUTTON;
+        context.localInput = input;
         return;
       }
 

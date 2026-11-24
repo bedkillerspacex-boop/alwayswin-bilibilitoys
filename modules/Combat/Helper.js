@@ -374,14 +374,19 @@
         return;
       }
 
-      const hitOverride = swapOnHit && now < tookDamageUntil;
+      const enemyActive = hasActiveEnemy(debug, player);
+      const bothEmpty = primaryAmmo <= 0 && secondaryAmmo <= 0;
+      const dangerOverride = !bothEmpty && secondaryAmmo > 0 && (
+        (swapOnHit && (enemyActive || now < tookDamageUntil)) ||
+        (autoSecondary && enemyActive)
+      );
       const reloadBlocked = state.state === 'reload' || now < reloadGraceUntil;
 
-      if (reloadBlocked && !hitOverride) {
+      if (reloadBlocked && !dangerOverride) {
         return;
       }
 
-      if (!SWAPPABLE_STATES.has(state.state) && !(hitOverride && state.state === 'reload')) {
+      if (!SWAPPABLE_STATES.has(state.state) && !(dangerOverride && state.state === 'reload')) {
         return;
       }
 
@@ -419,10 +424,11 @@
 
       if (
         autoSecondary &&
+        !bothEmpty &&
         !primaryEmptyHandled &&
         state.cur === 0 &&
         primary &&
-        (primaryAmmo <= 0 || (hitOverride && state.state === 'reload')) &&
+        (primaryAmmo <= 0 || (dangerOverride && state.state === 'reload')) &&
         secondaryAmmo > 0
       ) {
         if (primaryAmmo <= 0) {
