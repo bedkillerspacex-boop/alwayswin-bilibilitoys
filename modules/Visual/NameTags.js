@@ -358,7 +358,7 @@
           const isReloading = Boolean(snapP && snapP.reload > 0);
           const acInfo = anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
           const acTag = acInfo ? `[CHEATER: ${acInfo.reasons.join('/')}] ` : '';
-          const ircTag = ircInfo ? `[${ircInfo.ircName}|${ircInfo.protect ? 'PROTECT:ON' : 'PROTECT:OFF'}]` : '';
+          const ircTag = ircInfo ? `[${ircInfo.ircName}]` : '';
           const namePart = `${acTag}${ircTag}${baseName}`;
           const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
           const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : (isFriend || isSelf) ? FRIEND_COLOR : ENEMY_COLOR;
@@ -366,10 +366,12 @@
           const iconW = config.weapon && weaponName ? 18 * config.scale : 0;
           const rldText = config.reload && isReloading ? 'RLD' : '';
           const rldW = rldText ? (overlayCtx.measureText(rldText).width + 8 * config.scale) : 0;
+          const ptText = ircInfo ? 'PT' : '';
+          const ptW = ptText ? (overlayCtx.measureText(ptText).width + 8 * config.scale) : 0;
           const barH = config.health ? Math.max(2, Math.round(3 * config.scale)) : 0;
           const boxH = fontSize + 6 * config.scale + (barH ? barH + 2 : 0);
           const textW = overlayCtx.measureText(label).width;
-          const contentW = textW + (iconW ? iconW + 4 * config.scale : 0) + (rldW ? rldW + 4 * config.scale : 0);
+          const contentW = textW + (iconW ? iconW + 4 * config.scale : 0) + (rldW ? rldW + 4 * config.scale : 0) + (ptW ? ptW + 4 * config.scale : 0);
           const boxW = Math.max(contentW + padX * 2, 42 * config.scale);
           const boxX = sx - boxW * 0.5;
           const boxY = sy - boxH * 0.5;
@@ -402,6 +404,18 @@
             overlayCtx.fillRect(rx, ry, rldW, rh);
             overlayCtx.fillStyle = '#fbbf24';
             overlayCtx.fillText(rldText, rx + rldW * 0.5, centerY);
+            cursorX = rx + rldW;
+          }
+
+          if (ptW > 0) {
+            const px = cursorX + 4 * config.scale;
+            const ph = fontSize + 2 * config.scale;
+            const py = centerY - ph * 0.5;
+            const ptOn = Boolean(ircInfo.protect);
+            overlayCtx.fillStyle = ptOn ? 'rgba(64, 255, 112, 0.2)' : 'rgba(255, 72, 72, 0.22)';
+            overlayCtx.fillRect(px, py, ptW, ph);
+            overlayCtx.fillStyle = ptOn ? FRIEND_COLOR : ENEMY_COLOR;
+            overlayCtx.fillText(ptText, px + ptW * 0.5, centerY);
           }
 
           hadContent = true;
