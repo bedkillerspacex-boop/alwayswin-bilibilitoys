@@ -44,6 +44,8 @@
 
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
+    const prioritySetting = module.settings.find((entry) => entry.n === 'Target Priority');
+    const targetPriority = prioritySetting?.vals?.[prioritySetting.v] || 'Cheater > Player > Bot';
     const hitboxSetting = module.settings.find((entry) => entry.n === 'Hitbox');
     const hitbox = hitboxSetting?.vals?.[hitboxSetting.v] || 'Smart';
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 40)) || 0));
@@ -69,6 +71,7 @@
       module: 'aura',
       enabled: Boolean(module.on),
       mode,
+      targetPriority,
       hitbox,
       range,
       turnSpeed,
@@ -112,6 +115,20 @@
         d: 'Switch cycles between targets; Single stays on one target until lost.',
         v: 0,
         vals: ['Switch', 'Single']
+      },
+      {
+        t: 'e',
+        n: 'Target Priority',
+        d: 'Priority order across Cheaters, Players, and Bots.',
+        v: 0,
+        vals: [
+          'Cheater > Player > Bot',
+          'Cheater > Bot > Player',
+          'Player > Cheater > Bot',
+          'Player > Bot > Cheater',
+          'Bot > Cheater > Player',
+          'Bot > Player > Cheater'
+        ]
       },
       {
         t: 'e',
@@ -231,6 +248,7 @@
     let config = {
       enabled: false,
       mode: 'Switch',
+      targetPriority: 'Cheater > Player > Bot',
       hitbox: 'Smart',
       range: 40,
       turnSpeed: 1000,
@@ -576,6 +594,19 @@
       const range = Number(config.range) || 0;
       const now = performance.now();
       const candidates = [];
+      const order = String(config.targetPriority || 'Cheater > Player > Bot')
+        .split('>')
+        .map((part) => part.trim());
+      const ac = typeof bridge.getFeature === 'function' ? bridge.getFeature('anticheat') : null;
+      const snap = bridge.getRawSnapshot?.();
+      const botById = new Map();
+      if (Array.isArray(snap?.players)) {
+        for (const p of snap.players) {
+          if (p && p.id != null) {
+            botById.set(String(p.id), Boolean(p.bot));
+          }
+        }
+      }
 
       for (const actor of actors) {
         if (!bridge.isEnemy(actor, player) || isIrcProtected(actor) || isSpawnIgnored(actor, now)) {
@@ -588,6 +619,11 @@
           continue;
         }
 
+        const isCheater = Boolean(ac && typeof ac.isCheater === 'function' && ac.isCheater(actor));
+        const isBot = Boolean(actor.bot || (actor.id != null && botById.get(String(actor.id))));
+        const role = isCheater ? 'Cheater' : (isBot ? 'Bot' : 'Player');
+        const idx = order.indexOf(role);
+        const roleRank = idx >= 0 ? idx : 99;
         const attacker = config.focusAttacker && actor.id != null && (recentAttackers.get(actor.id) || 0) > now;
         const spawnedAt = actor.id != null ? spawnedAtMap.get(actor.id) : null;
         const freshSpawn = config.deprioritizeSpawn && spawnedAt != null && (now - spawnedAt) < SPAWN_PROTECT_MS;
@@ -598,6 +634,7 @@
           tick: shot.tick,
           backtrackMs: shot.backtrackMs,
           distance: shot.distance,
+          roleRank,
           attacker,
           freshSpawn
         });
@@ -607,15 +644,11 @@
         return null;
       }
 
-      if (config.focusAttacker && lockedAttackerId != null) {
-        const locked = candidates.find((entry) => entry.actor?.id === lockedAttackerId);
-
-        if (locked) {
-          return locked;
-        }
-      }
-
       candidates.sort((a, b) => {
+        if (a.roleRank !== b.roleRank) {
+          return a.roleRank - b.roleRank;
+        }
+
         if (a.attacker !== b.attacker) {
           return a.attacker ? -1 : 1;
         }
@@ -626,6 +659,14 @@
 
         return a.distance - b.distance;
       });
+
+      if (config.focusAttacker && lockedAttackerId != null) {
+        const locked = candidates.find((entry) => entry.actor?.id === lockedAttackerId);
+
+        if (locked && locked.roleRank <= candidates[0].roleRank) {
+          return locked;
+        }
+      }
 
       if (config.focusAttacker && candidates[0].attacker && candidates[0].actor?.id != null) {
         lockedAttackerId = candidates[0].actor.id;
@@ -1056,6 +1097,7 @@
       config = {
         enabled: Boolean(data.enabled),
         mode: data.mode === 'Single' ? 'Single' : 'Switch',
+        targetPriority: typeof data.targetPriority === 'string' && data.targetPriority ? data.targetPriority : 'Cheater > Player > Bot',
         hitbox: data.hitbox === 'Head' || data.hitbox === 'Body' ? data.hitbox : 'Smart',
         range: Math.max(0, Math.min(100, Number(data.range) || 0)),
         turnSpeed: Math.max(60, Math.min(1000, Number(data.turnSpeed) || 1000)),
