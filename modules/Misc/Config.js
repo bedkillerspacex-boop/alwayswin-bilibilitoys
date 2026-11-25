@@ -112,6 +112,15 @@
       { t: 'b', n: 'Save Binds', d: 'Includes the keybinds.', v: 1 }
     ],
     renderOrder: 4,
+    defaultOn: true,
+    onInit(mod) {
+      mod.locked = true;
+      const vis = mod.settings.find((entry) => entry.n === 'Visible');
+      if (vis) {
+        vis.v = 0;
+        vis.bs = 0;
+      }
+    },
     onRender: draw,
     onEnable() {}
   });
