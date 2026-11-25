@@ -614,8 +614,11 @@
     }
 
     function syncRoomFromEngine() {
+      const inOnlineSession = Boolean(document.body?.classList?.contains('online-session'));
       const eng = bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
-      if (!eng) {
+      if (!inOnlineSession || !eng || !eng.net || eng.net.closed || (eng.net.ws && eng.net.ws.readyState !== 1)) {
+        currentRoomId = '';
+        currentPlayerId = '';
         return;
       }
       const nextRoomId = resolveRoomId(eng, eng.room);

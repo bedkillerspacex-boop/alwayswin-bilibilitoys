@@ -358,7 +358,8 @@
           const isReloading = Boolean(snapP && snapP.reload > 0);
           const acInfo = anticheat && typeof anticheat.getInfo === 'function' ? anticheat.getInfo(actor) : null;
           const acTag = acInfo ? `[CHEATER: ${acInfo.reasons.join('/')}] ` : '';
-          const namePart = `${acTag}${ircInfo ? `[${ircInfo.ircName}]${baseName}` : baseName}`;
+          const ircTag = ircInfo ? `[${ircInfo.ircName}|${ircInfo.protect ? 'PROTECT:ON' : 'PROTECT:OFF'}]` : '';
+          const namePart = `${acTag}${ircTag}${baseName}`;
           const label = config.distance && !isSelf ? `${namePart} ${distMeters}m` : namePart;
           const color = acInfo ? '#ff9f1c' : ircInfo ? IRC_COLOR : (isFriend || isSelf) ? FRIEND_COLOR : ENEMY_COLOR;
           const padX = 6 * config.scale;

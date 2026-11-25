@@ -122,7 +122,8 @@
       aimPrecision: Boolean(setting(module, 'Aim Precision', true)),
       flagVl: Math.max(3, Math.min(20, Number(setting(module, 'Flag VL', 6.0)) || 6.0)),
       notify: Boolean(setting(module, 'Notify', true)),
-      ignoreSelf: Boolean(setting(module, 'Ignore Self', true))
+      ignoreSelf: Boolean(setting(module, 'Ignore Self', true)),
+      ignoreIrc: Boolean(setting(module, 'Ignore IRC', true))
     };
     const key = JSON.stringify(config);
 
@@ -203,7 +204,8 @@
       { t: 'b', n: 'Flag Sound', d: 'Play a sound when a cheater is flagged.', v: 1 },
       { t: 'e', n: 'Sound Mode', d: 'The alert sound played when a cheater is flagged.', v: 0, vals: ['Alert', 'Chime', 'Cash', 'Windows', 'Mario', 'Fard'] },
       { t: 'n', n: 'Sound Volume', d: 'The volume of the alert sound.', v: 0.8, min: 0, max: 1, step: 0.1 },
-      { t: 'b', n: 'Ignore Self', d: 'Skip anti-cheat checks on your own player.', v: 1 }
+      { t: 'b', n: 'Ignore Self', d: 'Skip anti-cheat checks on your own player.', v: 1 },
+      { t: 'b', n: 'Ignore IRC', d: 'Skip anti-cheat checks on IRC users.', v: 1 }
     ],
     onRender: syncConfig,
     onEnable() {
@@ -247,7 +249,8 @@
       aimPrecision: true,
       flagVl: 6.0,
       notify: true,
-      ignoreSelf: true
+      ignoreSelf: true,
+      ignoreIrc: true
     };
 
     const records = new Map();
@@ -368,6 +371,15 @@
       }
 
       return `Player ${id}`;
+    }
+
+    function isIrcIgnored(id) {
+      if (!config.ignoreIrc || id == null) {
+        return false;
+      }
+
+      const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
+      return Boolean(irc && typeof irc.isIrcUser === 'function' && irc.isIrcUser({ id }));
     }
 
     function flagPlayer(rec, reason) {
@@ -1130,6 +1142,10 @@
           continue;
         }
 
+        if (isIrcIgnored(p.id)) {
+          continue;
+        }
+
         const rec = getRecord(p.id, resolveActorName(p.id));
         decayAllVl(rec, now);
 
@@ -1192,7 +1208,7 @@
       const myId = engine?.net?.id;
 
       if (event.type === 'damage' && event.weapon !== 'melee') {
-        if (event.attacker == null || (config.ignoreSelf && myId != null && Number(event.attacker) === Number(myId))) {
+        if (event.attacker == null || (config.ignoreSelf && myId != null && Number(event.attacker) === Number(myId)) || isIrcIgnored(event.attacker)) {
           return;
         }
 
@@ -1319,7 +1335,7 @@
       }
 
       if (event.type === 'kill' && event.weapon !== 'melee') {
-        if (event.killer == null || (config.ignoreSelf && myId != null && Number(event.killer) === Number(myId))) {
+        if (event.killer == null || (config.ignoreSelf && myId != null && Number(event.killer) === Number(myId)) || isIrcIgnored(event.killer)) {
           return;
         }
 
@@ -1375,7 +1391,7 @@
       }
 
       if (event.type === 'shot' && event.weapon !== 'melee') {
-        if (event.id == null || (config.ignoreSelf && myId != null && Number(event.id) === Number(myId))) {
+        if (event.id == null || (config.ignoreSelf && myId != null && Number(event.id) === Number(myId)) || isIrcIgnored(event.id)) {
           return;
         }
 
@@ -1554,7 +1570,8 @@
         aimPrecision: data.aimPrecision !== false,
         flagVl: Math.max(3, Math.min(20, Number(data.flagVl) || 6.0)),
         notify: data.notify !== false,
-        ignoreSelf: data.ignoreSelf !== false
+        ignoreSelf: data.ignoreSelf !== false,
+        ignoreIrc: data.ignoreIrc !== false
       };
 
       if (!config.enabled) {
