@@ -84,6 +84,7 @@
         "modules/Visual/Zoom.js",
         "modules/Visual/Keystrokes.js",
         "modules/Visual/SpeedHUD.js",
+        "modules/Visual/Promo.js",
         "modules/Visual/Indicators.js",
         "modules/Visual/Notifications.js",
         "modules/Visual/Fatality.js",
