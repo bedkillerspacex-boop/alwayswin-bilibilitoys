@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Indicators', 'Arraylist', 'TargetHUD', 'SessionStats'];
+  const ELEMENTS = ['Watermark', 'Keystrokes', 'SpeedHUD', 'Promo', 'Indicators', 'Arraylist', 'TargetHUD', 'SessionStats'];
   let snap = 0;
   let drag = null;
   let wasDragging = false;
@@ -52,6 +52,10 @@
 
     if (!HUD_ELEMENTS.SessionStats) {
       hudElement('SessionStats', 20, 210, 205, 74);
+    }
+
+    if (!HUD_ELEMENTS.Promo) {
+      hudElement('Promo', Math.max(16, (W / K) - 180), Math.max(16, (H / K) - 54), 160, 34);
     }
   }
 
