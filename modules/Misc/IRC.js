@@ -614,15 +614,16 @@
     }
 
     function syncRoomFromEngine() {
-      const inOnlineSession = Boolean(document.body?.classList?.contains('online-session'));
       const eng = bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
-      if (!inOnlineSession || !eng || !eng.net || eng.net.closed || (eng.net.ws && eng.net.ws.readyState !== 1)) {
+      const netId = eng?.net?.id;
+      const inMatchNow = Boolean(eng && eng.active !== false && netId != null && !eng.net?.closed);
+      if (!inMatchNow) {
         currentRoomId = '';
         currentPlayerId = '';
         return;
       }
       const nextRoomId = resolveRoomId(eng, eng.room);
-      const nextPlayerId = eng.net?.id != null ? String(eng.net.id) : '';
+      const nextPlayerId = String(netId);
       if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
         currentRoomId = nextRoomId;
         currentPlayerId = nextPlayerId;
