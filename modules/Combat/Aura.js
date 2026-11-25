@@ -44,8 +44,8 @@
 
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
-    const prioritySetting = module.settings.find((entry) => entry.n === 'Target Priority');
-    const targetPriority = prioritySetting?.vals?.[prioritySetting.v] || 'Cheater > Player > Bot';
+    const prioritySetting = module.settings.find((entry) => entry.n === 'Priority');
+    const targetPriority = prioritySetting?.vals?.[prioritySetting.v] || 'Ch>Pl>Bt';
     const hitboxSetting = module.settings.find((entry) => entry.n === 'Hitbox');
     const hitbox = hitboxSetting?.vals?.[hitboxSetting.v] || 'Smart';
     const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 40)) || 0));
@@ -118,16 +118,16 @@
       },
       {
         t: 'e',
-        n: 'Target Priority',
-        d: 'Priority order across Cheaters, Players, and Bots.',
+        n: 'Priority',
+        d: 'Target order: Ch=Cheater, Pl=Player, Bt=Bot.',
         v: 0,
         vals: [
-          'Cheater > Player > Bot',
-          'Cheater > Bot > Player',
-          'Player > Cheater > Bot',
-          'Player > Bot > Cheater',
-          'Bot > Cheater > Player',
-          'Bot > Player > Cheater'
+          'Ch>Pl>Bt',
+          'Ch>Bt>Pl',
+          'Pl>Ch>Bt',
+          'Pl>Bt>Ch',
+          'Bt>Ch>Pl',
+          'Bt>Pl>Ch'
         ]
       },
       {
@@ -248,7 +248,7 @@
     let config = {
       enabled: false,
       mode: 'Switch',
-      targetPriority: 'Cheater > Player > Bot',
+      targetPriority: 'Ch>Pl>Bt',
       hitbox: 'Smart',
       range: 40,
       turnSpeed: 1000,
@@ -594,9 +594,10 @@
       const range = Number(config.range) || 0;
       const now = performance.now();
       const candidates = [];
-      const order = String(config.targetPriority || 'Cheater > Player > Bot')
+      const ROLE_ALIASES = { Ch: 'Cheater', Cheater: 'Cheater', Pl: 'Player', Player: 'Player', Bt: 'Bot', Bot: 'Bot' };
+      const order = String(config.targetPriority || 'Ch>Pl>Bt')
         .split('>')
-        .map((part) => part.trim());
+        .map((part) => ROLE_ALIASES[part.trim()] || part.trim());
       const ac = typeof bridge.getFeature === 'function' ? bridge.getFeature('anticheat') : null;
       const snap = bridge.getRawSnapshot?.();
       const botById = new Map();
@@ -1097,7 +1098,7 @@
       config = {
         enabled: Boolean(data.enabled),
         mode: data.mode === 'Single' ? 'Single' : 'Switch',
-        targetPriority: typeof data.targetPriority === 'string' && data.targetPriority ? data.targetPriority : 'Cheater > Player > Bot',
+        targetPriority: typeof data.targetPriority === 'string' && data.targetPriority ? data.targetPriority : 'Ch>Pl>Bt',
         hitbox: data.hitbox === 'Head' || data.hitbox === 'Body' ? data.hitbox : 'Smart',
         range: Math.max(0, Math.min(100, Number(data.range) || 0)),
         turnSpeed: Math.max(60, Math.min(1000, Number(data.turnSpeed) || 1000)),
