@@ -555,6 +555,7 @@
     let currentPlayerId = '';
     let selfIrcName = '';
     let enginePatched = false;
+    let latestIrcEngine = null;
     let roomCounts = {};
 
     const peersById = new Map();
@@ -614,16 +615,21 @@
     }
 
     function syncRoomFromEngine() {
-      const eng = bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
-      const netId = eng?.net?.id;
-      const inMatchNow = Boolean(eng && eng.active !== false && netId != null && !eng.net?.closed);
-      if (!inMatchNow) {
+      const eng = latestIrcEngine || bridge.getEngineState?.()?.engine || window.GH?.debug?.engine;
+      if (!eng) {
+        return;
+      }
+
+      const listEl = document.getElementById('online-list');
+      const inDirectory = Boolean(listEl && listEl.offsetParent !== null);
+      if (eng.active === false || eng.net?.closed === true || inDirectory) {
         currentRoomId = '';
         currentPlayerId = '';
         return;
       }
-      const nextRoomId = resolveRoomId(eng, eng.room);
-      const nextPlayerId = String(netId);
+
+      const nextRoomId = resolveRoomId(eng, eng.room) || currentRoomId;
+      const nextPlayerId = eng.net?.id != null ? String(eng.net.id) : currentPlayerId;
       if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
         currentRoomId = nextRoomId;
         currentPlayerId = nextPlayerId;
@@ -666,6 +672,7 @@
           if (typeof proto.setRoom === 'function' && !proto.setRoom.__solsticeIrcPatched) {
             const origSetRoom = proto.setRoom;
             const wrappedSetRoom = function wrappedIrcSetRoom(room, ...rest) {
+              latestIrcEngine = this;
               const nextRoomId = resolveRoomId(this, room);
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : '';
 
@@ -685,6 +692,7 @@
           if (typeof proto.snapshot === 'function' && !proto.snapshot.__solsticeIrcPatched) {
             const origSnapshot = proto.snapshot;
             const wrappedSnapshot = function wrappedIrcSnapshot(s, ...rest) {
+              latestIrcEngine = this;
               const nextRoomId = resolveRoomId(this, this.room) || currentRoomId;
               const nextPlayerId = this.net?.id != null ? String(this.net.id) : currentPlayerId;
 
@@ -699,6 +707,19 @@
 
             Object.defineProperty(wrappedSnapshot, '__solsticeIrcPatched', { value: true });
             proto.snapshot = wrappedSnapshot;
+          }
+
+          if (typeof proto.exit === 'function' && !proto.exit.__solsticeIrcExitPatched) {
+            const origExit = proto.exit;
+            const wrappedExit = function wrappedIrcExit(...rest) {
+              currentRoomId = '';
+              currentPlayerId = '';
+              postRoomToParent();
+              return origExit.apply(this, rest);
+            };
+
+            Object.defineProperty(wrappedExit, '__solsticeIrcExitPatched', { value: true });
+            proto.exit = wrappedExit;
           }
         })
         .catch(() => {
