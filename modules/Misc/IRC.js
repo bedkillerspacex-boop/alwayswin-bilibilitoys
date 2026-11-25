@@ -40,6 +40,7 @@
   let currentRoomId = '';
   let currentPlayerId = '';
   let latestPeers = [];
+  let latestRoomCounts = {};
   let kickedOut = false;
 
   function getServerOrigin() {
@@ -266,7 +267,8 @@
       protectIrc,
       playerId: currentPlayerId,
       ircName: sessionIrcName,
-      peers: latestPeers
+      peers: latestPeers,
+      roomCounts: latestRoomCounts
     };
     const key = JSON.stringify(config);
 
@@ -506,6 +508,25 @@
     sendWsState();
   }, 500);
 
+  async function pollRoomCounts() {
+    if (!sessionToken || kickedOut || window.__alwayswinKicked) {
+      return;
+    }
+    try {
+      const res = await fetch(`${getServerOrigin()}/api/rooms`, { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.rooms && typeof data.rooms === 'object') {
+        latestRoomCounts = data.rooms;
+        syncConfig();
+      }
+    } catch {
+
+    }
+  }
+
+  setInterval(pollRoomCounts, 3000);
+  setTimeout(pollRoomCounts, 800);
+
   function bootGame() {
     let attempts = 0;
 
@@ -534,8 +555,57 @@
     let currentPlayerId = '';
     let selfIrcName = '';
     let enginePatched = false;
+    let roomCounts = {};
 
     const peersById = new Map();
+
+    function renderRoomIrcBadges() {
+      const list = document.getElementById('online-list');
+      if (!list) {
+        return;
+      }
+
+      const entries = list.querySelectorAll('section.online-room-entry');
+      for (const entry of entries) {
+        const btn = entry.querySelector('button[data-act^="online-room:"]');
+        const titleEl = entry.querySelector('b');
+        if (!btn || !titleEl) {
+          continue;
+        }
+
+        const roomId = btn.dataset.act.slice('online-room:'.length);
+        const count = Number(roomCounts[roomId]) || 0;
+        let badge = titleEl.querySelector('.solstice-irc-room-badge');
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'solstice-irc-room-badge';
+          badge.style.cssText = [
+            'display:inline-block',
+            'margin-left:8px',
+            'padding:1px 7px',
+            'border-radius:999px',
+            'font-size:11px',
+            'font-weight:700',
+            'vertical-align:middle'
+          ].join(';');
+          titleEl.appendChild(badge);
+        }
+
+        const nextText = `IRC: ${count}`;
+        if (badge.textContent !== nextText) {
+          badge.textContent = nextText;
+        }
+        if (count > 0) {
+          badge.style.background = 'rgba(59,130,246,0.22)';
+          badge.style.color = '#60a5fa';
+          badge.style.border = '1px solid rgba(96,165,250,0.45)';
+        } else {
+          badge.style.background = 'rgba(148,163,184,0.12)';
+          badge.style.color = '#94a3b8';
+          badge.style.border = '1px solid rgba(148,163,184,0.25)';
+        }
+      }
+    }
 
     function resolveRoomId(eng, roomObj) {
       const r = roomObj || eng?.room;
@@ -641,6 +711,7 @@
       connected = Boolean(data.connected);
       protectIrc = data.protectIrc !== false;
       selfIrcName = String(data.ircName || '');
+      roomCounts = data.roomCounts && typeof data.roomCounts === 'object' ? data.roomCounts : {};
 
       if (data.playerId) {
         currentPlayerId = String(data.playerId);
@@ -660,6 +731,7 @@
       }
 
       installEngineTracker();
+      renderRoomIrcBadges();
     });
 
     if (typeof bridge.provide === 'function') {
@@ -703,5 +775,6 @@
 
     installEngineTracker();
     setInterval(postRoomToParent, 1000);
+    setInterval(renderRoomIrcBadges, 500);
   }
 })();

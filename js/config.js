@@ -180,18 +180,30 @@
     for (const [name, rect] of Object.entries(HUD_LAYOUT || {})) {
       const x = Number(rect?.x);
       const y = Number(rect?.y);
+      const sc = Number(rect?.scale);
       if (Number.isFinite(x) && Number.isFinite(y)) {
-        out[name] = { x, y };
+        const entry = { x, y };
+        if (Number.isFinite(sc) && sc > 0) {
+          entry.scale = clamp(sc, 0.4, 3);
+        }
+        out[name] = entry;
       }
     }
 
-    /* 还没拖过的元素用运行中的实际坐标补上 */
+    /* 还没拖过的元素用运行中的实际坐标和缩放补上 */
     for (const [name, element] of Object.entries(HUD_ELEMENTS || {})) {
       const x = Number(element?.x);
       const y = Number(element?.y);
+      const sc = Number(element?.scale);
 
       if (!out[name] && Number.isFinite(x) && Number.isFinite(y)) {
-        out[name] = { x, y };
+        const entry = { x, y };
+        if (Number.isFinite(sc) && sc > 0) {
+          entry.scale = clamp(sc, 0.4, 3);
+        }
+        out[name] = entry;
+      } else if (out[name] && out[name].scale == null && Number.isFinite(sc) && sc > 0) {
+        out[name].scale = clamp(sc, 0.4, 3);
       }
     }
 
@@ -283,9 +295,14 @@
     for (const [name, rect] of Object.entries(hud)) {
       const x = Number(rect?.x);
       const y = Number(rect?.y);
+      const sc = Number(rect?.scale);
 
       if (Number.isFinite(x) && Number.isFinite(y)) {
-        HUD_LAYOUT[name] = { x, y };
+        HUD_LAYOUT[name] = {
+          x,
+          y,
+          scale: Number.isFinite(sc) && sc > 0 ? clamp(sc, 0.4, 3) : 1
+        };
       }
     }
 
@@ -295,6 +312,7 @@
       if (stored) {
         element.x = stored.x;
         element.y = stored.y;
+        element.scale = Number.isFinite(stored.scale) && stored.scale > 0 ? stored.scale : 1;
       }
     }
 
