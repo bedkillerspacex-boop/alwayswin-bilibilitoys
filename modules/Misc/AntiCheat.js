@@ -389,7 +389,7 @@
 
       rec.flags.add(reason);
 
-      if (config.notify) {
+      if (config.notify && !isIrcIgnored(rec.id)) {
         try {
           window.parent.postMessage({
             channel: CHANNEL,
@@ -1142,10 +1142,6 @@
           continue;
         }
 
-        if (isIrcIgnored(p.id)) {
-          continue;
-        }
-
         const rec = getRecord(p.id, resolveActorName(p.id));
         decayAllVl(rec, now);
 
@@ -1208,7 +1204,7 @@
       const myId = engine?.net?.id;
 
       if (event.type === 'damage' && event.weapon !== 'melee') {
-        if (event.attacker == null || (config.ignoreSelf && myId != null && Number(event.attacker) === Number(myId)) || isIrcIgnored(event.attacker)) {
+        if (event.attacker == null || (config.ignoreSelf && myId != null && Number(event.attacker) === Number(myId))) {
           return;
         }
 
@@ -1335,7 +1331,7 @@
       }
 
       if (event.type === 'kill' && event.weapon !== 'melee') {
-        if (event.killer == null || (config.ignoreSelf && myId != null && Number(event.killer) === Number(myId)) || isIrcIgnored(event.killer)) {
+        if (event.killer == null || (config.ignoreSelf && myId != null && Number(event.killer) === Number(myId))) {
           return;
         }
 
@@ -1391,7 +1387,7 @@
       }
 
       if (event.type === 'shot' && event.weapon !== 'melee') {
-        if (event.id == null || (config.ignoreSelf && myId != null && Number(event.id) === Number(myId)) || isIrcIgnored(event.id)) {
+        if (event.id == null || (config.ignoreSelf && myId != null && Number(event.id) === Number(myId))) {
           return;
         }
 
@@ -1538,7 +1534,7 @@
           const id = typeof actorOrId === 'object' ? actorOrId.id : actorOrId;
           const rec = id != null ? records.get(String(id)) : null;
 
-          if (!rec || rec.flags.size === 0) {
+          if (!rec || rec.flags.size === 0 || isIrcIgnored(id)) {
             return null;
           }
 

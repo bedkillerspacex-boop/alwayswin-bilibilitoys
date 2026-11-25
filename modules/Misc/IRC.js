@@ -622,7 +622,8 @@
 
       const listEl = document.getElementById('online-list');
       const inDirectory = Boolean(listEl && listEl.offsetParent !== null);
-      if (eng.active === false || eng.net?.closed === true || inDirectory) {
+      const inSettlement = Boolean(eng.ending || eng.phase === 'over');
+      if (eng.active === false || eng.net?.closed === true || inDirectory || inSettlement) {
         currentRoomId = '';
         currentPlayerId = '';
         return;
@@ -693,8 +694,9 @@
             const origSnapshot = proto.snapshot;
             const wrappedSnapshot = function wrappedIrcSnapshot(s, ...rest) {
               latestIrcEngine = this;
-              const nextRoomId = resolveRoomId(this, this.room) || currentRoomId;
-              const nextPlayerId = this.net?.id != null ? String(this.net.id) : currentPlayerId;
+              const isOver = Boolean(this.ending || this.phase === 'over' || s?.phase === 'over');
+              const nextRoomId = isOver ? '' : (resolveRoomId(this, this.room) || currentRoomId);
+              const nextPlayerId = isOver ? '' : (this.net?.id != null ? String(this.net.id) : currentPlayerId);
 
               if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
                 currentRoomId = nextRoomId;
