@@ -205,9 +205,10 @@
         return raw ? String(raw).replace(/\u00a7./g, '').slice(0, 64) : null;
       },
       get isBot() {
+        if (entity?.xzeNet || entity?.peer || entity?.xzMate) return false;
         return Boolean(
           entity?.type !== 'player' ||
-          entity?.xzeName ||
+          entity?.xzeBot ||
           (typeof entity?.look?.skin === 'string' && entity.look.skin.startsWith('p:xze_'))
         );
       },
@@ -215,7 +216,7 @@
         return entityPosition(entity);
       },
       get team() {
-        return 1;
+        return entity?.xzMate === true ? 0 : 1;
       },
       get alive() {
         return isAlive(entity);

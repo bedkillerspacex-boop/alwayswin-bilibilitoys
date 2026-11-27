@@ -546,7 +546,7 @@
           continue;
         }
 
-        const isMinion = Boolean((actor._entity && actor._entity.type && actor._entity.type !== 'player') || actor.isBot || actor.isMinion || actor.isMob);
+        const isMinion = Boolean(actor.isBot);
         const color = isIrc
           ? IRC_COLOR
           : config.teamMode

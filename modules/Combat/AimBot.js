@@ -45,11 +45,15 @@
       return;
     }
 
+    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'aimbot',
       enabled: Boolean(module.on),
+      mode,
+      fov: Math.max(5, Math.min(180, Number(setting(module, 'FOV', 60)))),
       smooth: Math.max(1, Math.min(20, Number(setting(module, 'Aim Smooth', 4)))),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
       rightClick: Boolean(setting(module, 'Right Click', false)),
@@ -79,6 +83,8 @@
     nm: { l: 'aimbot', ls: 'aim bot', n: 'AimBot', ns: 'Aim Bot' },
     disp: '',
     settings: [
+      { t: 'e', n: 'Mode', d: 'Switch picks closest angle each frame; Single locks one target until lost.', v: 0, vals: ['Switch', 'Single'] },
+      { t: 'n', n: 'FOV', d: 'Maximum angle in degrees from crosshair.', v: 60, min: 5, max: 180, step: 1 },
       {
         t: 'n',
         n: 'Aim Smooth',
@@ -119,11 +125,14 @@
   function installGame(bridge) {
     let config = {
       enabled: false,
+      mode: 'Switch',
+      fov: 60,
       smooth: 4,
       wallCheck: true,
       rightClick: false,
       dontLockHead: false
     };
+    let lockedTargetKey = '';
 
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type !== 'config' || data.module !== 'aimbot') {
@@ -131,18 +140,25 @@
       }
 
       const smooth = Number(data.smooth);
+      const fov = Number(data.fov);
 
       config = {
         enabled: Boolean(data.enabled),
+        mode: data.mode === 'Single' ? 'Single' : 'Switch',
+        fov: Number.isFinite(fov) ? bridge.clamp(fov, 5, 180) : 60,
         smooth: Number.isFinite(smooth) ? bridge.clamp(smooth, 1, 20) : 4,
         wallCheck: data.wallCheck !== false,
         rightClick: Boolean(data.rightClick),
         dontLockHead: Boolean(data.dontLockHead)
       };
+      if (!config.enabled || config.mode !== 'Single') {
+        lockedTargetKey = '';
+      }
     });
 
     bridge.onBeforePlayerUpdate((dt) => {
       if (!config.enabled) {
+        lockedTargetKey = '';
         return;
       }
 
@@ -158,25 +174,18 @@
       const rightHeld = bridge.physicalRmb || (input.held?.('Mouse2') && !syntheticAds);
 
       if (config.rightClick && !rightHeld) {
+        lockedTargetKey = '';
         return;
       }
 
       const forward = player.pos.clone();
       const head = player.pos.clone();
-      const projected = player.pos.clone();
       camera.getWorldDirection(forward);
 
       const eye = camera.position;
-      let best = null;
-      let bestScore = Infinity;
-
-      for (const actor of actors) {
-        if (!bridge.isEnemy(actor, player)) {
-          continue;
-        }
-
+      const actorKeyOf = (a) => (a.id != null ? `id:${a.id}` : a.name ? `name:${a.name}` : '');
+      const evaluateActor = (actor) => {
         const raw = typeof bridge.getRawPlayer === 'function' ? bridge.getRawPlayer(actor) : null;
-
         if (raw && raw.alive !== false) {
           const eyeHeight = raw.sliding ? 0.72 : raw.crouch ? 1.0 : 1.62;
           head.set(raw.x, raw.y + eyeHeight, raw.z);
@@ -207,48 +216,58 @@
           );
         }
 
+        let bestPt = null;
+        let bestAngle = Infinity;
         for (const pt of points) {
           const dx = pt.x - eye.x;
           const dy = pt.y - eye.y;
           const dz = pt.z - eye.z;
+          const len = Math.hypot(dx, dy, dz);
+          if (len < 0.001) continue;
 
-          if (dx * forward.x + dy * forward.y + dz * forward.z <= 0.1) {
-            continue;
-          }
+          const dot = bridge.clamp((dx * forward.x + dy * forward.y + dz * forward.z) / len, -1, 1);
+          const angleDeg = Math.acos(dot) * (180 / Math.PI);
+          if (angleDeg > config.fov || angleDeg >= bestAngle) continue;
 
-          projected.set(pt.x, pt.y, pt.z).project(camera);
+          if (config.wallCheck && !bridge.worldLineClear(eye, pt)) continue;
 
-          if (
-            !Number.isFinite(projected.x) ||
-            !Number.isFinite(projected.y) ||
-            !Number.isFinite(projected.z) ||
-            projected.z < -1 ||
-            projected.z > 1 ||
-            Math.abs(projected.x) > 1.25 ||
-            Math.abs(projected.y) > 1.25
-          ) {
-            continue;
-          }
+          bestAngle = angleDeg;
+          bestPt = pt;
+        }
+        return bestPt ? { pt: bestPt, angle: bestAngle } : null;
+      };
 
-          const score = projected.x * projected.x + projected.y * projected.y;
-          if (score >= bestScore) {
-            continue;
-          }
+      let best = null;
+      let bestScore = Infinity;
 
-          if (config.dontLockHead && config.wallCheck && !bridge.worldLineClear(eye, pt)) {
-            continue;
-          }
-
-          bestScore = score;
-          best = pt;
+      if (config.mode === 'Single' && lockedTargetKey) {
+        const lockedActor = actors.find((a) => bridge.isEnemy(a, player) && actorKeyOf(a) === lockedTargetKey);
+        const res = lockedActor ? evaluateActor(lockedActor) : null;
+        if (res) {
+          best = res.pt;
+          bestScore = res.angle;
+        } else {
+          lockedTargetKey = '';
         }
       }
 
       if (!best) {
-        return;
+        let bestActorKey = '';
+        for (const actor of actors) {
+          if (!bridge.isEnemy(actor, player)) continue;
+          const res = evaluateActor(actor);
+          if (res && res.angle < bestScore) {
+            bestScore = res.angle;
+            best = res.pt;
+            bestActorKey = actorKeyOf(actor);
+          }
+        }
+        if (config.mode === 'Single' && bestActorKey) {
+          lockedTargetKey = bestActorKey;
+        }
       }
 
-      if (!config.dontLockHead && config.wallCheck && !bridge.worldLineClear(eye, best)) {
+      if (!best) {
         return;
       }
 
