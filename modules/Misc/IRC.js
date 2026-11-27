@@ -43,6 +43,7 @@
   let latestPeers = [];
   let latestRoomCounts = {};
   let kickedOut = false;
+  let lastNotifiedRoomKey = '';
 
   function getServerOrigin() {
     try {
@@ -88,9 +89,11 @@
     }
 
     try {
+      const gameId = (typeof window !== 'undefined' && window.SolsticeGameId) || (location.pathname.includes('/potatoepic/') ? 'potatoepic' : 'goldenhour');
       ws.send(
         JSON.stringify({
           type: 'state',
+          game: gameId,
           roomId: currentRoomId,
           playerId: currentPlayerId,
           protect: isProtectActive()
@@ -199,6 +202,19 @@
         latestPeers = msg.peers;
         lastSentKey = '';
         syncConfig();
+
+        if (!currentRoomId) {
+          lastNotifiedRoomKey = '';
+        } else if (currentRoomId !== lastNotifiedRoomKey) {
+          lastNotifiedRoomKey = currentRoomId;
+          window.dispatchEvent(new CustomEvent('solstice:notify', {
+            detail: {
+              title: 'IRC',
+              text: `本局共 ${msg.peers.length} 名 IRC 用户`,
+              type: 'info'
+            }
+          }));
+        }
       }
     });
 
@@ -828,6 +844,34 @@
       installEngineTracker();
       setInterval(postRoomToParent, 1000);
       setInterval(renderRoomIrcBadges, 500);
+    } else {
+      const syncPotatoRoom = () => {
+        const g = window.game;
+        const nextRoomId = g?.net?.room?.code
+          ? `net:${g.net.room.code}`
+          : g?.p2pHost?.code
+            ? `p2p:${g.p2pHost.code}`
+            : g?.p2pGuest?.code
+              ? `p2p:${g.p2pGuest.code}`
+              : '';
+        const nextPlayerId = !nextRoomId
+          ? ''
+          : (g?.net?.eid > 0 ? String(g.net.eid) : String(g?.p2pGuest?.name || g?.net?.name || g?.player?.name || ''));
+        if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
+          currentRoomId = nextRoomId;
+          currentPlayerId = nextPlayerId;
+          try {
+            window.parent.postMessage({
+              channel: CHANNEL,
+              type: 'room',
+              roomId: currentRoomId,
+              playerId: currentPlayerId
+            }, OUTER_ORIGIN);
+          } catch {}
+        }
+      };
+      syncPotatoRoom();
+      setInterval(syncPotatoRoom, 1000);
     }
   }
 })();

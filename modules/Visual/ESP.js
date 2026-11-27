@@ -547,9 +547,11 @@
         }
 
         const isMinion = Boolean((actor._entity && actor._entity.type && actor._entity.type !== 'player') || actor.isBot || actor.isMinion || actor.isMob);
-        const color = config.teamMode
-          ? (isSelf || isFriend ? FRIEND_COLOR : isMinion ? MINION_COLOR : ENEMY_COLOR)
-          : (isIrc ? IRC_COLOR : isFriend ? FRIEND_COLOR : config.color);
+        const color = isIrc
+          ? IRC_COLOR
+          : config.teamMode
+            ? (isSelf || isFriend ? FRIEND_COLOR : isMinion ? MINION_COLOR : ENEMY_COLOR)
+            : (isFriend ? FRIEND_COLOR : config.color);
 
         overlayCtx.beginPath();
         overlayCtx.moveTo(hull[0][0], hull[0][1]);

@@ -197,6 +197,16 @@
   function actorProxy(entity) {
     return {
       _entity: entity,
+      get id() {
+        if (entity.id != null) return String(entity.id);
+        if (entity.eid != null) return String(entity.eid);
+        if (entity.peer?.id != null) return String(entity.peer.id);
+        const raw = entity.name ?? entity.rawName ?? entity.displayName ?? entity.customName;
+        return raw ? String(raw).replace(/\u00a7./g, '').slice(0, 64) : null;
+      },
+      get isBot() {
+        return entity?.type !== 'player';
+      },
       get pos() {
         return entityPosition(entity);
       },
