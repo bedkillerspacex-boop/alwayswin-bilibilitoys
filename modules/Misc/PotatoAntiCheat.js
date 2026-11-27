@@ -62,6 +62,7 @@
       serverUrl: DEFAULT_AC_URL,
       threshold: Math.max(5, Number(setting(mod, 'Alert VL', 20)) || 20),
       ignoreSelf: Boolean(setting(mod, 'Ignore Self', true)),
+      ignoreTeammates: Boolean(setting(mod, 'Ignore Teammates', true)),
       autoReport: Boolean(setting(mod, 'AutoReport', false))
     };
     const key = JSON.stringify(cfg);
@@ -97,6 +98,7 @@
     disp: 'Cloud',
     settings: [
       { t: 'b', n: 'Ignore Self', d: 'Skip cloud anti-cheat checks on your own player.', v: 1 },
+      { t: 'b', n: 'Ignore Teammates', d: 'Skip cloud anti-cheat checks on teammates.', v: 1 },
       { t: 'b', n: 'AutoReport', d: 'Automatically report flagged cheaters to the room server.', v: 0 },
       { t: 'n', n: 'Alert VL', d: 'Minimum total VL before flagging a player.', v: 20, min: 5, max: 100, step: 1 }
     ],
@@ -250,6 +252,7 @@
     let serverUrl = DEFAULT_AC_URL;
     let alertThreshold = 20;
     let ignoreSelf = true;
+    let ignoreTeammates = true;
     let autoReport = false;
 
     const batchers = new Map();
@@ -269,6 +272,7 @@
       serverUrl = String(data.serverUrl || DEFAULT_AC_URL).replace(/\/+$/, '');
       alertThreshold = Math.max(5, Number(data.threshold) || 20);
       ignoreSelf = data.ignoreSelf !== false;
+      ignoreTeammates = data.ignoreTeammates !== false;
       autoReport = Boolean(data.autoReport);
       if (!enabled) {
         batchers.clear();
@@ -296,7 +300,7 @@
         if (!actor || !actor.pos) continue;
         const isSelf = actor === player || (actor.id != null && player.id != null && String(actor.id) === String(player.id));
         if (ignoreSelf && isSelf) continue;
-        if (!isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;
+        if (ignoreTeammates && !isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;
         const key = String(actor.id ?? actor.name ?? '');
         if (!key) continue;
 
