@@ -743,6 +743,24 @@
     }
   }
 
+  let wasInMatch = false;
+  setInterval(() => {
+    const xzeR = window.XZE?.R;
+    const inMatch = Boolean(
+      game &&
+      game.state === 'play' &&
+      (!xzeR || xzeR.st === 'play')
+    );
+    if (wasInMatch && !inMatch) {
+      for (const hook of resetHooks) {
+        try {
+          hook();
+        } catch {}
+      }
+    }
+    wasInMatch = inMatch;
+  }, 500);
+
   const bridge = {
     game: 'potatoepic',
     active: true,

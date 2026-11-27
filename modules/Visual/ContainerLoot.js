@@ -205,8 +205,9 @@
       const entries = [];
       const maxDist = config.distance;
 
-      if (config.showContainers && Array.isArray(xzeR.map?.conts) && Array.isArray(xzeR.boxes)) {
-        const conts = xzeR.map.conts;
+      const mapConts = xze.MAPS?.[xzeR.map]?.conts;
+      if (config.showContainers && Array.isArray(mapConts) && Array.isArray(xzeR.boxes)) {
+        const conts = mapConts;
         const boxes = xzeR.boxes;
         for (let i = 0; i < conts.length; i++) {
           const c = conts[i];

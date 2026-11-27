@@ -144,6 +144,24 @@ window.addEventListener('mousedown',e=>{
   pendingModifierBind=null;
   applyKeyBind(bind);
 },true);
+window.addEventListener('message',e=>{
+  if(e.origin!=='https://www.bilibilitoy.com') return;
+  const d=e.data;
+  if(!d||d.channel!=='solstice-key'||(!S.binding&&!S.bindBool)) return;
+  if(d.type==='key'&&d.key==='Escape'){
+    if(S.binding){ S.binding.key=0; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; }
+    if(S.bindBool){ S.bindBool.key=0; S.bindBool=null; }
+    pendingModifierBind=null;
+    return;
+  }
+  if(d.type!=='down') return;
+  const code=String(d.code||d.key||'');
+  if(!code||MODIFIER_CODES.has(code)) return;
+  const keys=window.SolsticeKeys;
+  const bind=keys?keys.bindFromEvent({code,key:d.key,ctrlKey:d.ctrl,altKey:d.alt,shiftKey:d.shift,metaKey:d.meta}):code;
+  pendingModifierBind=null;
+  applyKeyBind(bind);
+});
 window.addEventListener('blur',()=>{ S.down=[false,false,false]; S.dragSetting=null; });
 
 function killHint(){

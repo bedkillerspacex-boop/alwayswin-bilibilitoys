@@ -257,6 +257,7 @@
     let autoReport = false;
 
     const batchers = new Map();
+    const matchVl = new Map();
     const flagged = new Map();
     const lastAlertAt = new Map();
     const reportedTargets = new Set();
@@ -277,12 +278,14 @@
       autoReport = Boolean(data.autoReport);
       if (!enabled) {
         batchers.clear();
+        matchVl.clear();
         flagged.clear();
       }
     });
 
     bridge.onReset(() => {
       batchers.clear();
+      matchVl.clear();
       flagged.clear();
       lastAlertAt.clear();
       reportedTargets.clear();
@@ -342,7 +345,11 @@
 
       for (const [key, batcher] of batchers) {
         const vl = await batcher.flush();
-        if (!vl || vl.totalVL < alertThreshold) continue;
+        if (!vl || vl.totalVL <= 0) continue;
+
+        const totalAccumVl = Math.round(((matchVl.get(key) || 0) + vl.totalVL) * 10) / 10;
+        matchVl.set(key, totalAccumVl);
+        if (totalAccumVl < alertThreshold) continue;
 
         const reasons = [];
         if (vl.derp >= 5) reasons.push('Derp');
@@ -354,7 +361,7 @@
         if (vl.badMode >= 5) reasons.push('BadMode');
         if (reasons.length === 0) reasons.push('CloudVL');
 
-        const info = { vl: vl.totalVL, reasons, updatedAt: Date.now() };
+        const info = { vl: totalAccumVl, reasons, updatedAt: Date.now() };
         flagged.set(key, info);
 
         if (autoReport && !reportedTargets.has(key)) {
@@ -381,7 +388,7 @@
               from: g.net.name,
               target: targetName,
               reason: 'cheat',
-              text: `PotatoAC: ${reasons.join('/')} (VL ${vl.totalVL.toFixed(1)})`
+              text: `PotatoAC: ${reasons.join('/')} (VL ${totalAccumVl.toFixed(1)})`
             }).catch(() => {});
           }
         }
@@ -395,7 +402,7 @@
               type: 'flag',
               id: key,
               name: nameByKey.get(key) || key,
-              vl: vl.totalVL,
+              vl: totalAccumVl,
               reasons
             }, OUTER_ORIGIN);
           } catch {}
