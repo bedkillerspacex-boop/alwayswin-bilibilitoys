@@ -687,12 +687,32 @@
     }
   }
 
+  const features = new Map();
+  const resetHooks = [];
+
+  function provide(name, value) {
+    if (typeof name === 'string' && name) {
+      features.set(name, value);
+    }
+  }
+
+  function getFeature(name) {
+    return typeof name === 'string' ? (features.get(name) ?? null) : null;
+  }
+
+  function onReset(hook) {
+    if (typeof hook === 'function') {
+      resetHooks.push(hook);
+    }
+  }
+
   const bridge = {
     game: 'potatoepic',
     active: true,
     onConfig,
     onBeforePlayerUpdate,
     onBeforeArsenalUpdate,
+    onReset,
     requestAutoFire,
     rayAabb,
     getContext,
@@ -700,9 +720,8 @@
     isEnemy,
     headPoint,
     worldLineClear,
-    getFeature() {
-      return null;
-    },
+    provide,
+    getFeature,
     clamp(value, min, max) {
       const number = Number(value);
       return Math.max(min, Math.min(max, Number.isFinite(number) ? number : min));

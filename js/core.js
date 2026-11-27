@@ -202,8 +202,8 @@ const S={
 };
 
 const HUD_LAYOUT_KEY=SOLSTICE_GAME==='potatoepic'?'solstice.potato.hud.layout':'solstice.hud.layout';
-const HUD_ELEMENTS={};
-let HUD_LAYOUT={};
+var HUD_ELEMENTS={};
+var HUD_LAYOUT={};
 try{
   HUD_LAYOUT=JSON.parse(localStorage.getItem(HUD_LAYOUT_KEY)||'{}')||{};
 }catch{
