@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "AlwaysWin-cod",
-  "short_name": "AlwaysWin-cod",
-  "version": "4.0.7",
-  "version_name": "B4-kskbl",
-  "description": "AlwaysWin utilities for GOLDEN HOUR. 进群817198355谢谢喵",
+  "name": "alwayswin-bilibilitoys",
+  "short_name": "alwayswin-bilibilitoys",
+  "version": "4.0.8",
+  "version_name": "B5",
+  "description": "AlwaysWin utilities for GOLDEN HOUR and Potato Epic. 进群817198355谢谢喵",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon16.png",
@@ -150,6 +150,107 @@
         "modules/Misc/KillSound.js",
         "modules/Misc/AntiCheat.js",
         "modules/Misc/IRC.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/toy/potatoepic/index.html"
+      ],
+      "js": [
+        "extension/protocol.js",
+        "extension/controller.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/toy/potatoepic/index.html"
+      ],
+      "css": [
+        "extension/overlay.css"
+      ],
+      "js": [
+        "extension/boot.js",
+        "js/perf.js",
+        "js/core.js",
+        "modules/Visual/Watermark.js",
+        "modules/Visual/ClickGuiFatality.js",
+        "modules/Visual/ClickGui.js",
+        "modules/Visual/HudEditor.js",
+        "modules/Visual/HUDSettings.js",
+        "modules/Visual/Arraylist.js",
+        "modules/Visual/ESP.js",
+        "modules/Visual/Keystrokes.js",
+        "modules/Visual/Promo.js",
+        "modules/Visual/Notifications.js",
+        "modules/Visual/Fatality.js",
+        "potato/modules/Visual/TargetHUD.js",
+        "modules/Combat/AimBot.js",
+        "modules/Combat/TriggerBot.js",
+        "potato/modules/Combat/NoRecoil.js",
+        "potato/modules/Combat/Aura.js",
+        "modules/Combat/InfAmmo.js",
+        "modules/Combat/FastShot.js",
+        "potato/modules/Movement/Speed.js",
+        "modules/Movement/Fly.js",
+        "modules/Movement/FastStop.js",
+        "modules/Player/GodMode.js",
+        "potato/modules/Misc/KillSound.js",
+        "potato/modules/Misc/UIDSpoof.js",
+        "potato/modules/Misc/UnLock.js",
+        "modules/Misc/ToggleSounds.js",
+        "modules/Misc/InputGuard.js",
+        "modules/Misc/Config.js",
+        "modules/Misc/IRC.js",
+        "modules/Misc/PotatoAntiCheat.js",
+        "js/main.js",
+        "js/config.js",
+        "js/commands.js",
+        "extension/page.js",
+        "js/mobile.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.bilibilitoy.com/toy/potatoepic/*"
+      ],
+      "js": [
+        "extension/potato-key-bridge.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.bilibilitoy.com/toy/potatoepic/*"
+      ],
+      "js": [
+        "extension/native-guard.js",
+        "extension/potato-game-bridge.js",
+        "modules/Visual/ESP.js",
+        "potato/modules/Visual/TargetHUD.js",
+        "modules/Combat/AimBot.js",
+        "modules/Combat/TriggerBot.js",
+        "potato/modules/Combat/NoRecoil.js",
+        "potato/modules/Combat/Aura.js",
+        "modules/Combat/InfAmmo.js",
+        "modules/Combat/FastShot.js",
+        "potato/modules/Movement/Speed.js",
+        "modules/Movement/Fly.js",
+        "modules/Movement/FastStop.js",
+        "modules/Player/GodMode.js",
+        "potato/modules/Misc/KillSound.js",
+        "potato/modules/Misc/UIDSpoof.js",
+        "potato/modules/Misc/UnLock.js",
+        "modules/Misc/IRC.js",
+        "modules/Misc/PotatoAntiCheat.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

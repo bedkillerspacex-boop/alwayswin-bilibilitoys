@@ -93,13 +93,17 @@ async function openConfigFolder(message) {
 }
 
 async function handleConfigMessage(message) {
+  const isPotato = message.scope === 'potato' || message.scope === 'potatoepic';
+  const storeKey = isPotato ? 'solstice_potato_cfg_store' : 'solstice_cfg_store';
+  const activeKey = isPotato ? 'solstice_potato_cfg_active' : 'solstice_cfg_active';
+
   if (message.action === 'storage-load') {
     try {
-      const res = await chrome.storage.local.get(['solstice_cfg_store', 'solstice_cfg_active']);
+      const res = await chrome.storage.local.get([storeKey, activeKey]);
       return {
         ok: true,
-        store: res.solstice_cfg_store && typeof res.solstice_cfg_store === 'object' ? res.solstice_cfg_store : null,
-        active: typeof res.solstice_cfg_active === 'string' ? res.solstice_cfg_active : ''
+        store: res[storeKey] && typeof res[storeKey] === 'object' ? res[storeKey] : null,
+        active: typeof res[activeKey] === 'string' ? res[activeKey] : ''
       };
     } catch (error) {
       return { ok: false, error: String(error && error.message ? error.message : error) };
@@ -111,11 +115,11 @@ async function handleConfigMessage(message) {
       const payload = {};
 
       if (message.store && typeof message.store === 'object') {
-        payload.solstice_cfg_store = message.store;
+        payload[storeKey] = message.store;
       }
 
       if (typeof message.active === 'string' && message.active) {
-        payload.solstice_cfg_active = message.active;
+        payload[activeKey] = message.active;
       }
 
       await chrome.storage.local.set(payload);

@@ -12,16 +12,19 @@
      • 支持导入 .cfg、导出 .cfg、打开配置文件夹
      ════════════════════════════════════════════════════════════════════ */
 
+  const IS_POTATO = (typeof window !== 'undefined' && window.SolsticeGameId === 'potatoepic') || location.pathname.includes('/potatoepic/');
+  const GAME_SCOPE = IS_POTATO ? 'potato' : 'goldenhour';
+
   const VERSION = 2;
-  const STORE_KEY = 'solstice.configs.v2';
-  const ACTIVE_KEY = 'solstice.config.active';
-  const LEGACY_STORE = 'solstice.configs';
-  const LEGACY_DEFAULT = 'solstice.config.default';
-  const BIND_KEY = 'solstice.binds';
-  const HUD_KEY = 'solstice.hud.layout';
+  const STORE_KEY = IS_POTATO ? 'solstice.potato.configs.v2' : 'solstice.configs.v2';
+  const ACTIVE_KEY = IS_POTATO ? 'solstice.potato.config.active' : 'solstice.config.active';
+  const LEGACY_STORE = IS_POTATO ? 'solstice.potato.configs' : 'solstice.configs';
+  const LEGACY_DEFAULT = IS_POTATO ? 'solstice.potato.config.default' : 'solstice.config.default';
+  const BIND_KEY = IS_POTATO ? 'solstice.potato.binds' : 'solstice.binds';
+  const HUD_KEY = IS_POTATO ? 'solstice.potato.hud.layout' : 'solstice.hud.layout';
 
   const DEFAULT_NAME = 'Default';
-  const FOLDER = 'AlwaysWin';
+  const FOLDER = IS_POTATO ? 'AlwaysWin-Potato' : 'AlwaysWin';
   const AUTOSAVE_MS = 1200;
   const MIRROR_MS = 4000;
   const BRIDGE_TIMEOUT = 5000;
@@ -213,6 +216,7 @@
   function snapshot(name) {
     const data = {
       version: VERSION,
+      game: GAME_SCOPE,
       name: sanitizeName(name) || active(),
       savedAt: Date.now(),
       modules: captureModules()
@@ -325,6 +329,11 @@
 
   function applySnapshot(config, options = {}) {
     if (!config || !Array.isArray(config.modules)) {
+      return false;
+    }
+
+    if (config.game && config.game !== GAME_SCOPE) {
+      notify(`Config belongs to ${config.game}, cannot load in ${GAME_SCOPE}.`);
       return false;
     }
 
@@ -489,7 +498,7 @@
       setTimeout(() => finish(null), BRIDGE_TIMEOUT);
 
       try {
-        window.postMessage({ channel: 'solstice-cfg', id, action, folder: FOLDER, ...payload }, '*');
+        window.postMessage({ channel: 'solstice-cfg', id, action, scope: GAME_SCOPE, folder: FOLDER, ...payload }, '*');
       } catch {
         finish(null);
       }

@@ -184,6 +184,7 @@
   });
 
   register({
+    game: 'goldenhour',
     name: 'AntiCheat',
     desc: 'Flags cheaters (Spin/Derp, Bhop Speed, NoJumpDelay, High Headshot, Silent Aim).',
     cat: 'Misc',

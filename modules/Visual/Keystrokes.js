@@ -21,7 +21,8 @@
   function isGameSource(source) {
     for (const frame of document.querySelectorAll('iframe')) {
       if (
-        frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`) &&
+        (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`) ||
+         frame.src.startsWith(`${GAME_ORIGIN}/toy/potatoepic/`)) &&
         frame.contentWindow === source
       ) {
         return true;

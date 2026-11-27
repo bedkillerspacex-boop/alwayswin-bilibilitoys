@@ -6,12 +6,13 @@
      - 外层页面登录成功后立即直连 wss://cod.firebounce.today/ws?token=...（不受 iframe 限制，登录即在线）
      - 游戏 iframe 同步当前 roomId / playerId 给外层页面，外层页面把同房间 peers 列表回传给 iframe */
 
-  const DEFAULT_IRC_ORIGIN = 'https://cod.firebounce.today';
+  const DEFAULT_IRC_ORIGIN = 'https://alwayswin.firebounce.today';
   const CHANNEL = 'solstice-irc';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const OUTER_ORIGIN = 'https://www.bilibili.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
@@ -46,7 +47,11 @@
   function getServerOrigin() {
     try {
       const saved = (localStorage.getItem(STORAGE_KEYS.server) || '').trim();
-      return saved ? saved.replace(/\/+$/, '') : DEFAULT_IRC_ORIGIN;
+      if (!saved || saved.includes('cod.firebounce.today')) {
+        if (saved) localStorage.removeItem(STORAGE_KEYS.server);
+        return DEFAULT_IRC_ORIGIN;
+      }
+      return saved.replace(/\/+$/, '');
     } catch {
       return DEFAULT_IRC_ORIGIN;
     }
@@ -58,7 +63,7 @@
 
   function findGameFrame() {
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         return frame;
       }
     }
@@ -258,6 +263,7 @@
 
     const now = performance.now();
     const protectIrc = isProtectActive();
+    window.__alwayswinIrcToken = sessionToken;
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -265,6 +271,8 @@
       enabled: Boolean(sessionToken && !kickedOut && !window.__alwayswinKicked),
       connected: wsConnected,
       protectIrc,
+      token: sessionToken,
+      serverOrigin: getServerOrigin(),
       playerId: currentPlayerId,
       ircName: sessionIrcName,
       peers: latestPeers,
@@ -738,6 +746,11 @@
       connected = Boolean(data.connected);
       protectIrc = data.protectIrc !== false;
       selfIrcName = String(data.ircName || '');
+      const ircTok = String(data.token || '');
+      const ircSrv = String(data.serverOrigin || DEFAULT_IRC_ORIGIN);
+      bridge.ircToken = ircTok;
+      bridge.ircServer = ircSrv;
+      window.__alwayswinIrcToken = ircTok;
       roomCounts = data.roomCounts && typeof data.roomCounts === 'object' ? data.roomCounts : {};
 
       if (data.playerId) {
@@ -757,13 +770,17 @@
         }
       }
 
-      installEngineTracker();
-      renderRoomIrcBadges();
+      if (bridge.game !== 'potatoepic') {
+        installEngineTracker();
+        renderRoomIrcBadges();
+      }
     });
 
     if (typeof bridge.provide === 'function') {
       bridge.provide('irc', {
         isEnabled: () => enabled && connected,
+        getToken: () => bridge.ircToken || window.__alwayswinIrcToken || '',
+        getServerOrigin: () => bridge.ircServer || DEFAULT_IRC_ORIGIN,
         isIrcUser: (actor) => Boolean(actor && actor.id != null && peersById.has(String(actor.id))),
         getIrcInfo: (actor) => {
           if (!actor || actor.id == null) {
@@ -800,8 +817,10 @@
       postRoomToParent();
     });
 
-    installEngineTracker();
-    setInterval(postRoomToParent, 1000);
-    setInterval(renderRoomIrcBadges, 500);
+    if (bridge.game !== 'potatoepic') {
+      installEngineTracker();
+      setInterval(postRoomToParent, 1000);
+      setInterval(renderRoomIrcBadges, 500);
+    }
   }
 })();

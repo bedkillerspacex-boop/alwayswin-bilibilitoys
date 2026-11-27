@@ -2,9 +2,10 @@
   'use strict';
 
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
-  const CONFIG_KEY = 'solstice.configs';
-  const DEFAULT_KEY = 'solstice.config.default';
-  const BIND_KEY = 'solstice.binds';
+  const IS_POTATO = (typeof window !== 'undefined' && window.SolsticeGameId === 'potatoepic') || location.pathname.includes('/potatoepic/');
+  const CONFIG_KEY = IS_POTATO ? 'solstice.potato.configs' : 'solstice.configs';
+  const DEFAULT_KEY = IS_POTATO ? 'solstice.potato.config.default' : 'solstice.config.default';
+  const BIND_KEY = IS_POTATO ? 'solstice.potato.binds' : 'solstice.binds';
   const CONFIG_VERSION = 1;
   const COMMANDS = [
     {

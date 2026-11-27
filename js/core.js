@@ -41,12 +41,27 @@ function rgb2hsv(r,g,b){
 }
 const CATS=["Combat","Movement","Player","Visual","Misc"];
 const RAW_MODULES=[];
-function register(def){RAW_MODULES.push(def);}
+const GAME_IDS=["goldenhour","potatoepic"];
+function activeGame(){
+  const value=document.documentElement?.getAttribute('data-solstice-game');
+  if(GAME_IDS.includes(value)) return value;
+  const path=location.pathname;
+  if(path.includes('/golden-hour/')) return 'goldenhour';
+  if(path.includes('/potatoepic/')) return 'potatoepic';
+  return 'unknown';
+}
+const SOLSTICE_GAME=activeGame();
+if(typeof window!=='undefined') window.SolsticeGameId=SOLSTICE_GAME;
+function register(def){
+  RAW_MODULES.push({...def,game:def.game||null});
+}
 let MODS=[],BY_NAME={},BY_CAT=[],RENDER_MODS=[];
 const norm=x=>x.toLowerCase().replace(/[\s_]/g,'');
 
 function buildModules(){
-  MODS=RAW_MODULES.map(m=>({
+  MODS=RAW_MODULES
+    .filter(m=>!m.game||m.game===SOLSTICE_GAME)
+    .map(m=>({
     name:m.name, desc:m.desc, cat:m.cat, nm:m.nm, disp:m.disp,
     on:false, cAnim:0, cScale:0, showSettings:false, animList:0, key:m.key||0,
     settings:[{t:'b',n:'Visible',d:'Whether the module is visible in the Arraylist',v:1,bs:1,
@@ -186,7 +201,7 @@ const S={
   touchLongPress:false
 };
 
-const HUD_LAYOUT_KEY='solstice.hud.layout';
+const HUD_LAYOUT_KEY=SOLSTICE_GAME==='potatoepic'?'solstice.potato.hud.layout':'solstice.hud.layout';
 const HUD_ELEMENTS={};
 let HUD_LAYOUT={};
 try{

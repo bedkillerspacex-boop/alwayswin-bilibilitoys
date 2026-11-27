@@ -27,6 +27,7 @@
     ['Mojangles', 700, 'Mojangles-Bold.ttf'],
     ['Tenacity Icons', 400, 'Tenacity-Icons.ttf']
   ];
+  const KEY_CHANNEL = 'solstice-key';
 
   function injectFonts() {
     const host = document.head || document.documentElement;
@@ -76,6 +77,14 @@
 
     if (root && !root.hasAttribute('data-solstice-alwayswin')) {
       root.setAttribute('data-solstice-alwayswin', chrome.runtime.getURL('assets/img/alwayswin.png'));
+    }
+
+    if (root && !root.hasAttribute('data-solstice-notch')) {
+      root.setAttribute('data-solstice-notch', chrome.runtime.getURL('assets/img/notch.png'));
+    }
+
+    if (root && !root.hasAttribute('data-solstice-game')) {
+      root.setAttribute('data-solstice-game', Protocol.GAME.pathPrefix.includes('/potatoepic/') ? 'potatoepic' : 'goldenhour');
     }
   }
 
@@ -155,7 +164,28 @@
 
     const data = event.data;
 
-    if (!data || data.channel !== Protocol.GAME.channel || typeof data.type !== 'string') {
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    if (data.channel === KEY_CHANNEL) {
+      if (data.type !== 'key' || (data.key !== 'Insert' && data.key !== 'Escape')) {
+        return;
+      }
+
+      const request = new CustomEvent('solstice:key', {
+        detail: {
+          key: data.key,
+          keyCode: Number(data.keyCode) || 0,
+          handled: false
+        }
+      });
+
+      window.dispatchEvent(request);
+      return;
+    }
+
+    if (data.channel !== Protocol.GAME.channel || typeof data.type !== 'string') {
       return;
     }
 
@@ -224,6 +254,7 @@
         source: 'solstice-page',
         type: 'solstice/cfg',
         action: data.action,
+        scope: data.scope,
         name: data.name,
         folder: data.folder,
         content: data.content,
@@ -282,6 +313,10 @@
   scheduleFontInjection();
   exposeAudioBase();
   exposeSevenDays();
+  exposeNotch();
+  exposeGameName();
   document.addEventListener('DOMContentLoaded', exposeAudioBase, { once: true });
   document.addEventListener('DOMContentLoaded', exposeSevenDays, { once: true });
+  document.addEventListener('DOMContentLoaded', exposeNotch, { once: true });
+  document.addEventListener('DOMContentLoaded', exposeGameName, { once: true });
 })();
