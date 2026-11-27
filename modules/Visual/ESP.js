@@ -58,6 +58,7 @@
       filled: Boolean(setting(module, 'Render Filled', true)),
       local: Boolean(setting(module, 'Render Local', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
+      teamMode: Boolean(setting(module, 'Team Mode', false)),
       color
     };
     const key = JSON.stringify(config);
@@ -87,7 +88,8 @@
       { t: 'e', n: 'Style', d: 'The style of the ESP (3D box or Body chams).', v: 0, vals: ['3D', 'Body'] },
       { t: 'b', n: 'Render Filled', d: 'Whether or not to render the ESP filled.', v: 1 },
       { t: 'b', n: 'Render Local', d: 'Whether or not to render the ESP on the local player.', v: 0 },
-      { t: 'b', n: 'Show Friends', d: 'Whether or not to render the ESP on teammates.', v: 1 }
+      { t: 'b', n: 'Show Friends', d: 'Whether or not to render the ESP on teammates.', v: 1 },
+      { t: 'b', n: 'Team Mode', d: 'Color self/teammates green, minions/bots gray, and enemies red.', v: 0 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -116,6 +118,8 @@
   function installGame(bridge) {
     const BOX_HALF_WIDTH = 0.35;
     const FRIEND_COLOR = [0, 255, 0];
+    const MINION_COLOR = [156, 163, 175];
+    const ENEMY_COLOR = [255, 64, 64];
     const IRC_COLOR = [64, 156, 255];
     let config = {
       enabled: false,
@@ -123,6 +127,7 @@
       filled: true,
       local: false,
       friends: true,
+      teamMode: false,
       color: [255, 80, 160]
     };
     const savedMeshes = new Map();
@@ -541,7 +546,10 @@
           continue;
         }
 
-        const color = isIrc ? IRC_COLOR : isFriend ? FRIEND_COLOR : config.color;
+        const isMinion = Boolean((actor._entity && actor._entity.type && actor._entity.type !== 'player') || actor.isBot || actor.isMinion || actor.isMob);
+        const color = config.teamMode
+          ? (isSelf || isFriend ? FRIEND_COLOR : isMinion ? MINION_COLOR : ENEMY_COLOR)
+          : (isIrc ? IRC_COLOR : isFriend ? FRIEND_COLOR : config.color);
 
         overlayCtx.beginPath();
         overlayCtx.moveTo(hull[0][0], hull[0][1]);
@@ -635,6 +643,7 @@
         filled: data.filled !== false,
         local: Boolean(data.local),
         friends: data.friends !== false,
+        teamMode: Boolean(data.teamMode),
         color
       };
 

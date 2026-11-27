@@ -52,7 +52,8 @@
       enabled: Boolean(module.on),
       smooth: Math.max(1, Math.min(20, Number(setting(module, 'Aim Smooth', 4)))),
       wallCheck: Boolean(setting(module, 'Wall Check', true)),
-      rightClick: Boolean(setting(module, 'Right Click', false))
+      rightClick: Boolean(setting(module, 'Right Click', false)),
+      dontLockHead: Boolean(setting(module, 'DoNot Lock Head', false))
     };
     const key = JSON.stringify(config);
 
@@ -88,7 +89,8 @@
         step: 0.1
       },
       { t: 'b', n: 'Wall Check', d: 'Only aim at targets that are not behind walls.', v: 1 },
-      { t: 'b', n: 'Right Click', d: 'Only aim while holding the right mouse button.', v: 0 }
+      { t: 'b', n: 'Right Click', d: 'Only aim while holding the right mouse button.', v: 0 },
+      { t: 'b', n: 'DoNot Lock Head', d: 'Aim at any exposed body part instead of only locking the head.', v: 0 }
     ],
     onRender: syncConfig,
     onEnable() {}
@@ -119,7 +121,8 @@
       enabled: false,
       smooth: 4,
       wallCheck: true,
-      rightClick: false
+      rightClick: false,
+      dontLockHead: false
     };
 
     bridge.onConfig('solstice-combat', (data) => {
@@ -133,7 +136,8 @@
         enabled: Boolean(data.enabled),
         smooth: Number.isFinite(smooth) ? bridge.clamp(smooth, 1, 20) : 4,
         wallCheck: data.wallCheck !== false,
-        rightClick: Boolean(data.rightClick)
+        rightClick: Boolean(data.rightClick),
+        dontLockHead: Boolean(data.dontLockHead)
       };
     });
 
@@ -180,33 +184,63 @@
           bridge.headPoint(actor, head);
         }
 
-        const dx = head.x - eye.x;
-        const dy = head.y - eye.y;
-        const dz = head.z - eye.z;
-
-        if (dx * forward.x + dy * forward.y + dz * forward.z <= 0.1) {
-          continue;
+        const points = [{ x: head.x, y: head.y, z: head.z }];
+        if (config.dontLockHead) {
+          const box = Array.isArray(actor.box) && actor.box.length >= 6 ? actor.box : null;
+          const bx = raw ? raw.x : box ? (box[0] + box[3]) * 0.5 : actor.pos.x;
+          const by = raw ? raw.y : box ? box[1] : actor.pos.y;
+          const bz = raw ? raw.z : box ? (box[2] + box[5]) * 0.5 : actor.pos.z;
+          const h = raw
+            ? (raw.sliding ? 0.95 : raw.crouch ? 1.2 : 1.8)
+            : box ? Math.max(0.4, box[4] - box[1]) : (Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8);
+          const hw = box ? Math.max(0.18, Math.min(0.4, (box[3] - box[0]) * 0.35)) : 0.24;
+          const hd = box ? Math.max(0.18, Math.min(0.4, (box[5] - box[2]) * 0.35)) : 0.24;
+          points.push(
+            { x: bx, y: by + h * 0.72, z: bz },
+            { x: bx, y: by + h * 0.52, z: bz },
+            { x: bx, y: by + h * 0.34, z: bz },
+            { x: bx + hw, y: by + h * 0.65, z: bz },
+            { x: bx - hw, y: by + h * 0.65, z: bz },
+            { x: bx, y: by + h * 0.65, z: bz + hd },
+            { x: bx, y: by + h * 0.65, z: bz - hd },
+            { x: bx, y: by + h * 0.18, z: bz }
+          );
         }
 
-        projected.copy(head).project(camera);
+        for (const pt of points) {
+          const dx = pt.x - eye.x;
+          const dy = pt.y - eye.y;
+          const dz = pt.z - eye.z;
 
-        if (
-          !Number.isFinite(projected.x) ||
-          !Number.isFinite(projected.y) ||
-          !Number.isFinite(projected.z) ||
-          projected.z < -1 ||
-          projected.z > 1 ||
-          Math.abs(projected.x) > 1.25 ||
-          Math.abs(projected.y) > 1.25
-        ) {
-          continue;
-        }
+          if (dx * forward.x + dy * forward.y + dz * forward.z <= 0.1) {
+            continue;
+          }
 
-        const score = projected.x * projected.x + projected.y * projected.y;
+          projected.set(pt.x, pt.y, pt.z).project(camera);
 
-        if (score < bestScore) {
+          if (
+            !Number.isFinite(projected.x) ||
+            !Number.isFinite(projected.y) ||
+            !Number.isFinite(projected.z) ||
+            projected.z < -1 ||
+            projected.z > 1 ||
+            Math.abs(projected.x) > 1.25 ||
+            Math.abs(projected.y) > 1.25
+          ) {
+            continue;
+          }
+
+          const score = projected.x * projected.x + projected.y * projected.y;
+          if (score >= bestScore) {
+            continue;
+          }
+
+          if (config.dontLockHead && config.wallCheck && !bridge.worldLineClear(eye, pt)) {
+            continue;
+          }
+
           bestScore = score;
-          best = { x: head.x, y: head.y, z: head.z };
+          best = pt;
         }
       }
 
@@ -214,7 +248,7 @@
         return;
       }
 
-      if (config.wallCheck && !bridge.worldLineClear(eye, best)) {
+      if (!config.dontLockHead && config.wallCheck && !bridge.worldLineClear(eye, best)) {
         return;
       }
 
