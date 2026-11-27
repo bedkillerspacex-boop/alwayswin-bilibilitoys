@@ -57,7 +57,7 @@
       return null;
     }
 
-    return TARGETS.find((entry) => entry.target.pathname === url.pathname) || null;
+    return TARGETS.find((entry) => entry.target.pathname === url.pathname || (entry === POTATO_EPIC && url.pathname === '/toy/potatoepic')) || null;
   }
 
   const CURRENT_TARGET = targetSpec(globalThis.location?.href) || GOLDEN_HOUR;

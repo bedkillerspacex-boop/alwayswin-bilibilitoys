@@ -157,7 +157,8 @@
     },
     {
       "matches": [
-        "https://www.bilibili.com/toy/potatoepic/index.html"
+        "https://www.bilibili.com/toy/potatoepic/index.html",
+        "https://www.bilibili.com/toy/potatoepic"
       ],
       "js": [
         "extension/protocol.js",
@@ -168,7 +169,8 @@
     },
     {
       "matches": [
-        "https://www.bilibili.com/toy/potatoepic/index.html"
+        "https://www.bilibili.com/toy/potatoepic/index.html",
+        "https://www.bilibili.com/toy/potatoepic"
       ],
       "css": [
         "extension/overlay.css"
@@ -235,7 +237,6 @@
         "extension/native-guard.js",
         "extension/potato-game-bridge.js",
         "modules/Visual/ESP.js",
-        "potato/modules/Visual/TargetHUD.js",
         "modules/Combat/AimBot.js",
         "modules/Combat/TriggerBot.js",
         "potato/modules/Combat/NoRecoil.js",
