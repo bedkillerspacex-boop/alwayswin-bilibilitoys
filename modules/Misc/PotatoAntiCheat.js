@@ -37,25 +37,6 @@
     if (!mod) return;
 
     const ircToken = String(window.__alwayswinIrcToken || '');
-    const authReady = Boolean(window.__alwayswinIrcAuthReady);
-    if (mod.on && !ircToken) {
-      if (authReady) {
-        if (typeof setModuleOn === 'function') {
-          setModuleOn(mod, false);
-        } else {
-          mod.on = false;
-        }
-        const now = Date.now();
-        if (now - lastWarnAt > 3000) {
-          lastWarnAt = now;
-          document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
-            detail: { message: '[AntiCheat] 请先登录 IRC 后再启用云端反作弊' }
-          }));
-        }
-      }
-      return;
-    }
-
     const now = performance.now();
     const cfg = {
       channel: CHANNEL,
