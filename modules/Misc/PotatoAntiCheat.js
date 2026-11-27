@@ -48,8 +48,8 @@
         const now = Date.now();
         if (now - lastWarnAt > 3000) {
           lastWarnAt = now;
-          window.dispatchEvent(new CustomEvent('solstice:notify', {
-            detail: { title: 'AntiCheat', text: '请先登录 IRC 后再启用云端反作弊', type: 'warn' }
+          document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
+            detail: { message: '[AntiCheat] 请先登录 IRC 后再启用云端反作弊' }
           }));
         }
       }
@@ -83,11 +83,9 @@
     if (event.origin !== GAME_ORIGIN) return;
     const d = event.data;
     if (!d || d.channel !== NOTIFY_CHANNEL || d.type !== 'flag') return;
-    window.dispatchEvent(new CustomEvent('solstice:notify', {
+    document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
       detail: {
-        title: 'PotatoAC',
-        text: `${d.name} 疑似作弊 (${d.reasons.join('/')}, VL ${d.vl.toFixed(1)})`,
-        type: 'warn'
+        message: `[AntiCheat] ${d.name} flagged (${d.reasons.join('/')}, VL ${d.vl.toFixed(1)})`
       }
     }));
   });
@@ -112,8 +110,8 @@
         if (mod && typeof setModuleOn === 'function') {
           setTimeout(() => setModuleOn(mod, false), 0);
         }
-        window.dispatchEvent(new CustomEvent('solstice:notify', {
-          detail: { title: 'AntiCheat', text: '请先登录 IRC 后再启用云端反作弊', type: 'warn' }
+        document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
+          detail: { message: '[AntiCheat] 请先登录 IRC 后再启用云端反作弊' }
         }));
       }
     }

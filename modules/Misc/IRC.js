@@ -207,11 +207,9 @@
           lastNotifiedRoomKey = '';
         } else if (currentRoomId !== lastNotifiedRoomKey) {
           lastNotifiedRoomKey = currentRoomId;
-          window.dispatchEvent(new CustomEvent('solstice:notify', {
+          document.dispatchEvent(new CustomEvent('solstice:anticheat-flag', {
             detail: {
-              title: 'IRC',
-              text: `本局共 ${msg.peers.length} 名 IRC 用户`,
-              type: 'info'
+              message: `[IRC] 本局共 ${msg.peers.length} 名 IRC 用户`
             }
           }));
         }
