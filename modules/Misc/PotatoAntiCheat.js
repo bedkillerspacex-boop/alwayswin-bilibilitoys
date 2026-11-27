@@ -37,18 +37,21 @@
     if (!mod) return;
 
     const ircToken = String(window.__alwayswinIrcToken || '');
+    const authReady = Boolean(window.__alwayswinIrcAuthReady);
     if (mod.on && !ircToken) {
-      if (typeof setModuleOn === 'function') {
-        setModuleOn(mod, false);
-      } else {
-        mod.on = false;
-      }
-      const now = Date.now();
-      if (now - lastWarnAt > 3000) {
-        lastWarnAt = now;
-        window.dispatchEvent(new CustomEvent('solstice:notify', {
-          detail: { title: 'AntiCheat', text: '请先登录 IRC 后再启用云端反作弊', type: 'warn' }
-        }));
+      if (authReady) {
+        if (typeof setModuleOn === 'function') {
+          setModuleOn(mod, false);
+        } else {
+          mod.on = false;
+        }
+        const now = Date.now();
+        if (now - lastWarnAt > 3000) {
+          lastWarnAt = now;
+          window.dispatchEvent(new CustomEvent('solstice:notify', {
+            detail: { title: 'AntiCheat', text: '请先登录 IRC 后再启用云端反作弊', type: 'warn' }
+          }));
+        }
       }
       return;
     }
@@ -104,7 +107,7 @@
     ],
     onRender: syncConfig,
     onEnable() {
-      if (!window.__alwayswinIrcToken) {
+      if (window.__alwayswinIrcAuthReady && !window.__alwayswinIrcToken) {
         const mod = typeof getMod === 'function' ? getMod('AntiCheat') : null;
         if (mod && typeof setModuleOn === 'function') {
           setTimeout(() => setModuleOn(mod, false), 0);

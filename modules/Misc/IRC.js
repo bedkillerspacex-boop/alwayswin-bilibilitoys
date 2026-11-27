@@ -467,6 +467,7 @@
     }
 
     autoLoginAttempted = true;
+    window.__alwayswinIrcAuthReady = false;
 
     let savedUser = '';
     let savedPass = '';
@@ -481,10 +482,16 @@
     }
 
     if (savedAuto && savedUser && savedPass) {
-      performLogin(savedUser, savedPass).catch(() => {
-        openLoginModal();
-      });
+      performLogin(savedUser, savedPass)
+        .then(() => {
+          window.__alwayswinIrcAuthReady = true;
+        })
+        .catch(() => {
+          window.__alwayswinIrcAuthReady = true;
+          openLoginModal();
+        });
     } else {
+      window.__alwayswinIrcAuthReady = true;
       openLoginModal();
     }
   }
