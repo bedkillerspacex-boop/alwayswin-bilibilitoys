@@ -79,10 +79,10 @@
       }
     }
 
-    const setUidBtn = module.settings.find((entry) => entry.n === 'Set Custom UID');
+    const setUidBtn = module.settings.find((entry) => entry.n === 'Set Custom ID');
     if (setUidBtn && setUidBtn.v) {
       setUidBtn.v = 0;
-      const input = window.prompt('输入自定义 UID（如 toid_v1_k01_RRi_...，留空则恢复随机）:', getStoredCustomUid());
+      const input = window.prompt('输入自定义 ID（留空则恢复随机）:', getStoredCustomUid());
       if (input !== null) {
         const clean = input.trim();
         setStoredCustomUid(clean);
@@ -129,8 +129,8 @@
     nm: { l: 'uidspoof', ls: 'uid spoof', n: 'UIDSpoof', ns: 'UID Spoof' },
     disp: '',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Random generates a random UID; Custom uses your configured UID.', v: 0, vals: ['Random', 'Custom'] },
-      { t: 'b', n: 'Set Custom UID', d: 'Click to enter a custom UID.', v: 0 },
+      { t: 'e', n: 'Mode', d: 'Random generates a random ID; Custom uses your configured ID.', v: 0, vals: ['Random', 'Custom'] },
+      { t: 'b', n: 'Set Custom ID', d: 'Click to enter a custom ID.', v: 0 },
       { t: 'b', n: 'Set Name', d: 'Click to set a custom spoofed name (empty = account name).', v: 0 }
     ],
     onRender: syncConfig,

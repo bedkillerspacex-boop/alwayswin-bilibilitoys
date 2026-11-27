@@ -588,10 +588,10 @@
                 if (Toy.last && typeof Toy.last === 'object') {
                   Toy.last.relation = {
                     status: 'ok',
-                    data: { isFollowing: true, isAuthor: false, isOldFan: false, hasFanMedal: false, isCharging: false }
+                    data: { isFollowing: false, isAuthor: false, isOldFan: false, hasFanMedal: false, isCharging: false }
                   };
                 }
-                return true;
+                return false;
               }
               return origFollowing.apply(this, args);
             };
