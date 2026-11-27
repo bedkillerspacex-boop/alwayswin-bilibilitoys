@@ -300,7 +300,7 @@
 
       const mode = window.XZE ? 1 : 0;
       for (const actor of actors) {
-        if (!actor || !actor.pos) continue;
+        if (!actor || !actor.pos || actor.isBot) continue;
         const isSelf = actor === player || (actor.id != null && player.id != null && String(actor.id) === String(player.id));
         if (ignoreSelf && isSelf) continue;
         if (ignoreTeammates && !isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;

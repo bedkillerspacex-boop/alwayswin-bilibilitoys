@@ -55,6 +55,7 @@
       local: Boolean(setting(module, 'Show Self', false)),
       friends: Boolean(setting(module, 'Show Friends', true)),
       enemies: Boolean(setting(module, 'Show Enemies', true)),
+      ignoreBots: Boolean(setting(module, 'Ignore Bots', true)),
       health: Boolean(setting(module, 'Show Health', true)),
       distance: Boolean(setting(module, 'Show Distance', true)),
       weapon: Boolean(setting(module, 'Show Weapon', true)),
@@ -88,6 +89,7 @@
       { t: 'b', n: 'Show Self', d: 'Render a name tag above your own player.', v: 0 },
       { t: 'b', n: 'Show Friends', d: 'Render name tags above teammates.', v: 1 },
       { t: 'b', n: 'Show Enemies', d: 'Render name tags above non-IRC enemies.', v: 1 },
+      { t: 'b', n: 'Ignore Bots', d: 'Hide name tags above bots and NPCs.', v: 1 },
       { t: 'b', n: 'Show Health', d: 'Show health bar under the name tag.', v: 1 },
       { t: 'b', n: 'Show Distance', d: 'Show distance in meters next to the name.', v: 1 },
       { t: 'b', n: 'Show Weapon', d: 'Show current weapon icon on name tags.', v: 1 },
@@ -128,6 +130,7 @@
       local: false,
       friends: true,
       enemies: true,
+      ignoreBots: true,
       health: true,
       distance: true,
       weapon: true,
@@ -313,9 +316,14 @@
 
           const isSelf = actor === player;
           const isFriend = !isSelf && Number(actor.team) === Number(player.team);
+          const isBot = Boolean(actor.isBot || (actor._entity && actor._entity.type && actor._entity.type !== 'player'));
           const ircInfo = irc && typeof irc.getIrcInfo === 'function' ? irc.getIrcInfo(actor) : null;
 
           if (isSelf && !config.local) {
+            continue;
+          }
+
+          if (config.ignoreBots && isBot && !ircInfo) {
             continue;
           }
 
@@ -502,6 +510,7 @@
         local: Boolean(data.local),
         friends: data.friends !== false,
         enemies: data.enemies !== false,
+        ignoreBots: data.ignoreBots !== false,
         health: data.health !== false,
         distance: data.distance !== false,
         weapon: data.weapon !== false,

@@ -205,7 +205,11 @@
         return raw ? String(raw).replace(/\u00a7./g, '').slice(0, 64) : null;
       },
       get isBot() {
-        return entity?.type !== 'player';
+        return Boolean(
+          entity?.type !== 'player' ||
+          entity?.xzeName ||
+          (typeof entity?.look?.skin === 'string' && entity.look.skin.startsWith('p:xze_'))
+        );
       },
       get pos() {
         return entityPosition(entity);

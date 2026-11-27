@@ -847,8 +847,9 @@
     } else {
       const syncPotatoRoom = () => {
         const g = window.game;
-        const nextRoomId = g?.net?.room?.code
-          ? `net:${g.net.room.code}`
+        const netCode = g?.net?.room?.code || g?.net?.opts?.room?.code || '';
+        const nextRoomId = netCode
+          ? `net:${netCode}`
           : g?.p2pHost?.code
             ? `p2p:${g.p2pHost.code}`
             : g?.p2pGuest?.code
