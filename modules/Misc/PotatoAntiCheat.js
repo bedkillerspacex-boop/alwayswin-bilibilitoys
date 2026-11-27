@@ -60,7 +60,9 @@
       enabled: Boolean(mod.on && ircToken),
       token: ircToken,
       serverUrl: DEFAULT_AC_URL,
-      threshold: Math.max(5, Number(setting(mod, 'Alert VL', 20)) || 20)
+      threshold: Math.max(5, Number(setting(mod, 'Alert VL', 20)) || 20),
+      ignoreSelf: Boolean(setting(mod, 'Ignore Self', true)),
+      autoReport: Boolean(setting(mod, 'AutoReport', false))
     };
     const key = JSON.stringify(cfg);
     if (key === lastSentKey && now - lastSentAt < 500) return;
@@ -94,6 +96,8 @@
     nm: { l: 'anticheat', ls: 'anti cheat', n: 'AntiCheat', ns: 'Anti Cheat' },
     disp: 'Cloud',
     settings: [
+      { t: 'b', n: 'Ignore Self', d: 'Skip cloud anti-cheat checks on your own player.', v: 1 },
+      { t: 'b', n: 'AutoReport', d: 'Automatically report flagged cheaters to the room server.', v: 0 },
       { t: 'n', n: 'Alert VL', d: 'Minimum total VL before flagging a player.', v: 20, min: 5, max: 100, step: 1 }
     ],
     onRender: syncConfig,
@@ -245,10 +249,13 @@
     let ircToken = '';
     let serverUrl = DEFAULT_AC_URL;
     let alertThreshold = 20;
+    let ignoreSelf = true;
+    let autoReport = false;
 
     const batchers = new Map();
     const flagged = new Map();
     const lastAlertAt = new Map();
+    const reportedTargets = new Set();
 
     function activeToken() {
       const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
@@ -261,6 +268,8 @@
       ircToken = String(data.token || '');
       serverUrl = String(data.serverUrl || DEFAULT_AC_URL).replace(/\/+$/, '');
       alertThreshold = Math.max(5, Number(data.threshold) || 20);
+      ignoreSelf = data.ignoreSelf !== false;
+      autoReport = Boolean(data.autoReport);
       if (!enabled) {
         batchers.clear();
         flagged.clear();
@@ -271,6 +280,7 @@
       batchers.clear();
       flagged.clear();
       lastAlertAt.clear();
+      reportedTargets.clear();
     });
 
     function collectTick() {
@@ -283,8 +293,10 @@
 
       const mode = window.XZE ? 1 : 0;
       for (const actor of actors) {
-        if (!actor || actor === player || !actor.pos) continue;
-        if (actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;
+        if (!actor || !actor.pos) continue;
+        const isSelf = actor === player || (actor.id != null && player.id != null && String(actor.id) === String(player.id));
+        if (ignoreSelf && isSelf) continue;
+        if (!isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;
         const key = String(actor.id ?? actor.name ?? '');
         if (!key) continue;
 
@@ -339,6 +351,35 @@
 
         const info = { vl: vl.totalVL, reasons, updatedAt: Date.now() };
         flagged.set(key, info);
+
+        if (autoReport && !reportedTargets.has(key)) {
+          const targetName = nameByKey.get(key) || '';
+          const g = window.game;
+          const room = g?.net?.room;
+          const actorObj = actors.find((a) => a && String(a.id ?? a.name ?? '') === key);
+          const irc = typeof bridge.getFeature === 'function' ? bridge.getFeature('irc') : null;
+          const isIrc = actorObj && irc && typeof irc.isIrcUser === 'function' && irc.isIrcUser(actorObj);
+          if (
+            targetName &&
+            !isIrc &&
+            room &&
+            room.code &&
+            g?.net?.name &&
+            targetName !== g.net.name &&
+            typeof RoomService !== 'undefined' &&
+            typeof RoomService.api === 'function' &&
+            typeof RoomService.key === 'function'
+          ) {
+            reportedTargets.add(key);
+            RoomService.api('/api/rooms/' + room.code + '/report', {
+              key: RoomService.key(),
+              from: g.net.name,
+              target: targetName,
+              reason: 'cheat',
+              text: `PotatoAC: ${reasons.join('/')} (VL ${vl.totalVL.toFixed(1)})`
+            }).catch(() => {});
+          }
+        }
 
         const now = Date.now();
         if (now - (lastAlertAt.get(key) || 0) > 10000) {
