@@ -235,6 +235,12 @@
       get type() {
         return entity.type || 'player';
       },
+      get yaw() {
+        return Number(entity.yaw) || 0;
+      },
+      get pitch() {
+        return Number(entity.pitch) || 0;
+      },
       get health() {
         const peerHealth = Number(entity.peer?.state?.health);
         if (Number.isFinite(peerHealth)) return peerHealth;
@@ -519,7 +525,7 @@
     );
 
     if (!fresh && game?.state === 'play' && !game.ui?.screen && game?.player) {
-      const lp = localPlayer();
+      const lp = playerProxy(game.player);
       const all = remoteActors(lp);
       if (targetHudShotTarget && now - (window.__solsticeLastShotAt || 0) < 2500) {
         const hitActor = all.find((a) => a !== lp && targetHudTargetId(a._entity) === targetHudShotTarget && a.alive !== false);
@@ -635,8 +641,16 @@
   function runFrame(now) {
     const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = now;
-    postTargetHud(now);
-    postInputState(now);
+    try {
+      postTargetHud(now);
+    } catch {
+
+    }
+    try {
+      postInputState(now);
+    } catch {
+
+    }
 
     if (game?.state === 'play' && !game.ui?.screen) {
       for (const callback of frameCallbacks) {

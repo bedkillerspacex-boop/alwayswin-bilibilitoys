@@ -272,8 +272,14 @@
       reportedTargets.clear();
     });
 
+    function isInMatch() {
+      const g = window.game;
+      const xzeR = window.XZE?.R;
+      return Boolean(g && g.state === 'play' && !g.ui?.screen && (!xzeR || xzeR.st === 'play'));
+    }
+
     function collectTick() {
-      if (!enabled || !activeToken()) return;
+      if (!enabled || !activeToken() || !isInMatch()) return;
       const gh = bridge.getGH();
       const debug = gh?.debug;
       const player = debug?.player;
@@ -314,7 +320,7 @@
     }
 
     async function flushTick() {
-      if (!enabled || !activeToken()) return;
+      if (!enabled || !activeToken() || !isInMatch()) return;
       const gh = bridge.getGH();
       const actors = gh?.debug?.match?.actors || [];
       const nameByKey = new Map();
@@ -328,7 +334,7 @@
         const vl = await batcher.flush();
         if (!vl || vl.totalVL <= 0) continue;
 
-        const totalAccumVl = Math.round(((matchVl.get(key) || 0) + vl.totalVL) * 10) / 10;
+        const totalAccumVl = Math.round(Math.max(matchVl.get(key) || 0, vl.totalVL) * 10) / 10;
         matchVl.set(key, totalAccumVl);
         if (totalAccumVl < alertThreshold) continue;
 
