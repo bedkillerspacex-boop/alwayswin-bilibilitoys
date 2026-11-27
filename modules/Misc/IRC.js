@@ -848,7 +848,11 @@
       const syncPotatoRoom = () => {
         const g = window.game;
         const xzeR = window.XZE?.R;
-        const xzeRid = xzeR && (xzeR.st === 'play' || xzeR.st === 'loading' || xzeR.net) ? (xzeR.rid || xzeR.net?.id || '') : '';
+        const inXzeRaid = Boolean(
+          xzeR &&
+          (xzeR.st === 'loading' || (xzeR.st === 'play' && (!g?.state || g.state === 'play')))
+        );
+        const xzeRid = inXzeRaid ? (xzeR.rid || xzeR.net?.id || '') : '';
         const netCode = g?.net?.room?.code || g?.net?.opts?.room?.code || '';
         const nextRoomId = xzeRid
           ? `xze:${xzeRid}`
