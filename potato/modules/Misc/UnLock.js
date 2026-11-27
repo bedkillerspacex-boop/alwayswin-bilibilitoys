@@ -586,7 +586,10 @@
             const wrappedFollowing = async function wrappedPotatoFollowing(...args) {
               if (enabled) {
                 if (Toy.last && typeof Toy.last === 'object') {
-                  Toy.last.following = { status: 'ok', following: true };
+                  Toy.last.relation = {
+                    status: 'ok',
+                    data: { isFollowing: true, isAuthor: false, isOldFan: false, hasFanMedal: false, isCharging: false }
+                  };
                 }
                 return true;
               }
