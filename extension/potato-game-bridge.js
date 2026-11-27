@@ -705,6 +705,27 @@
 
   const features = new Map();
   const resetHooks = [];
+  let uiOpen = false;
+
+  if (typeof Element !== 'undefined' && Element.prototype?.requestPointerLock && !Element.prototype.requestPointerLock.__solsticePotatoLock) {
+    const origReqLock = Element.prototype.requestPointerLock;
+    const wrappedReqLock = function requestPointerLock(...args) {
+      if (uiOpen) {
+        return Promise.resolve();
+      }
+      return origReqLock.apply(this, args);
+    };
+    Object.defineProperty(wrappedReqLock, '__solsticePotatoLock', { value: true });
+    Element.prototype.requestPointerLock = wrappedReqLock;
+  }
+
+  for (const evtName of ['mousemove', 'mousedown', 'mouseup', 'pointermove', 'pointerdown', 'pointerup', 'wheel']) {
+    window.addEventListener(evtName, (e) => {
+      if (!uiOpen) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
+  }
 
   function provide(name, value) {
     if (typeof name === 'string' && name) {
@@ -750,6 +771,12 @@
     }
   };
 
+  Object.defineProperty(bridge, 'uiOpen', {
+    get() {
+      return uiOpen;
+    }
+  });
+
   Object.defineProperty(bridge, 'physicalRmb', {
     get() {
       return Boolean(game?.mouseBtn?.[2]);
@@ -761,6 +788,17 @@
       return;
     }
     const data = event.data;
+    if (data.channel === 'solstice-game' && (data.type === 'state' || data.type === 'ui-state')) {
+      uiOpen = Boolean(data.open);
+      if (uiOpen) {
+        try {
+          if (document.pointerLockElement && document.exitPointerLock) {
+            document.exitPointerLock();
+          }
+        } catch {}
+      }
+      return;
+    }
     const handlers = configHandlers.get(data.channel);
     if (!handlers) return;
     for (const callback of handlers) {

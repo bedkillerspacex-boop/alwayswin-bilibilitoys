@@ -313,10 +313,6 @@
   scheduleFontInjection();
   exposeAudioBase();
   exposeSevenDays();
-  exposeNotch();
-  exposeGameName();
   document.addEventListener('DOMContentLoaded', exposeAudioBase, { once: true });
   document.addEventListener('DOMContentLoaded', exposeSevenDays, { once: true });
-  document.addEventListener('DOMContentLoaded', exposeNotch, { once: true });
-  document.addEventListener('DOMContentLoaded', exposeGameName, { once: true });
 })();
