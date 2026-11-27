@@ -73,7 +73,8 @@
       fallTicks2: Number(setting(module, 'Fall Ticks 2', 5)),
       fallSpeed2: Number(setting(module, 'Fall Speed 2', 1)),
       jumpType: jumpSetting?.vals?.[jumpSetting.v] || 'Vanilla',
-      jumpHeight: Number(setting(module, 'Jump Height', 0.42))
+      jumpHeight: Number(setting(module, 'Jump Height', 0.42)),
+      onlyForward: Boolean(setting(module, 'Only Forward', 1))
     }, GAME_ORIGIN);
     lastSentAt = now;
   }
@@ -87,6 +88,7 @@
     disp: 'Mode',
     settings: [
       { t: 'e', n: 'Mode', d: 'The mode of speed', v: 0, vals: ['Friction', 'Legit'] },
+      { t: 'b', n: 'Only Forward', d: 'Only apply Speed while W (forward) is held (W+A / W+D included).', v: 1 },
       { t: 'b', n: 'Damage Boost', d: 'Whether or not to boost speed when taking damage.', v: 0 },
       { t: 'n', n: 'Damage Boost Speed', d: 'The speed to boost when taking damage.', v: 3, min: 1, max: 10, step: 0.01 },
       { t: 'n', n: 'Damage Boost Slowdown', d: 'The friction to apply when taking damage.', v: 0.15, min: 0, max: 1, step: 0.01 },
@@ -170,7 +172,8 @@
       fallTicks2: 5,
       fallSpeed2: 1,
       jumpType: 'Vanilla',
-      jumpHeight: 0.42
+      jumpHeight: 0.42,
+      onlyForward: true
     };
     let airFactor = 1;
     let airTicks = 0;
@@ -272,6 +275,9 @@
         }
 
         const move = movement(game, { fwd, strafe, jump });
+        if (config.onlyForward && move.fwd <= 0) {
+          return originalTravel.apply(this, arguments);
+        }
         const moving = move.fwd !== 0 || move.strafe !== 0;
 
         if (!config.strafeOnly) {
@@ -348,7 +354,8 @@
         fallTicks2: Math.max(0, Math.min(20, Number(data.fallTicks2) || 0)),
         fallSpeed2: Math.max(0, Math.min(10, Number(data.fallSpeed2) || 0)),
         jumpType: ['None', 'Velocity'].includes(data.jumpType) ? data.jumpType : 'Vanilla',
-        jumpHeight: Math.max(0, Math.min(1, Number(data.jumpHeight) || 0))
+        jumpHeight: Math.max(0, Math.min(1, Number(data.jumpHeight) || 0)),
+        onlyForward: data.onlyForward !== false
       };
       airFactor = 1;
       airTicks = 0;
