@@ -438,13 +438,8 @@
         ...(acc.data.unlocks || {}),
         follow: true,
         triple: true,
-        online: true,
-        static: true,
-        anim: true,
-        jing: true,
         ai: true
       };
-      acc.gate = { requireAccount: false, follow: false, triple: false };
       acc.save?.();
     }
 
@@ -578,39 +573,6 @@
         Object.defineProperty(wrappedAllUnlocked, '__solsticePotatoUnlock', { value: true });
         acc.allUnlocked = wrappedAllUnlocked;
       }
-
-      try {
-        if (typeof Toy !== 'undefined') {
-          if (typeof Toy.following === 'function' && !Toy.following.__solsticePotatoUnlock) {
-            const origFollowing = Toy.following;
-            const wrappedFollowing = async function wrappedPotatoFollowing(...args) {
-              if (enabled) {
-                if (Toy.last && typeof Toy.last === 'object') {
-                  Toy.last.relation = {
-                    status: 'ok',
-                    data: { isFollowing: false, isAuthor: false, isOldFan: false, hasFanMedal: false, isCharging: false }
-                  };
-                }
-                return false;
-              }
-              return origFollowing.apply(this, args);
-            };
-            Object.defineProperty(wrappedFollowing, '__solsticePotatoUnlock', { value: true });
-            Toy.following = wrappedFollowing;
-          }
-          if (typeof Toy.triple === 'function' && !Toy.triple.__solsticePotatoUnlock) {
-            const origTriple = Toy.triple;
-            const wrappedTriple = async function wrappedPotatoTriple(...args) {
-              if (enabled) {
-                return { all: true, like: true, coin: true, fav: true };
-              }
-              return origTriple.apply(this, args);
-            };
-            Object.defineProperty(wrappedTriple, '__solsticePotatoUnlock', { value: true });
-            Toy.triple = wrappedTriple;
-          }
-        }
-      } catch {}
     }
 
     function restorePatches() {

@@ -4,7 +4,6 @@
   const CHANNEL = 'solstice-uidspoof';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const CUSTOM_NAME_STORAGE_KEY = 'solstice.potato.uidspoof.name';
-  const CUSTOM_UID_STORAGE_KEY = 'solstice.potato.uidspoof.customUid';
   const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
   let lastSentKey = '';
@@ -26,30 +25,8 @@
   function setStoredCustomName(value) {
     try {
       const clean = String(value || '').trim().slice(0, 24);
-      if (clean) {
-        localStorage.setItem(CUSTOM_NAME_STORAGE_KEY, clean);
-      } else {
-        localStorage.removeItem(CUSTOM_NAME_STORAGE_KEY);
-      }
-    } catch {}
-  }
-
-  function getStoredCustomUid() {
-    try {
-      return String(localStorage.getItem(CUSTOM_UID_STORAGE_KEY) || '').trim();
-    } catch {
-      return '';
-    }
-  }
-
-  function setStoredCustomUid(value) {
-    try {
-      const clean = String(value || '').trim();
-      if (clean) {
-        localStorage.setItem(CUSTOM_UID_STORAGE_KEY, clean);
-      } else {
-        localStorage.removeItem(CUSTOM_UID_STORAGE_KEY);
-      }
+      if (clean) localStorage.setItem(CUSTOM_NAME_STORAGE_KEY, clean);
+      else localStorage.removeItem(CUSTOM_NAME_STORAGE_KEY);
     } catch {}
   }
 
@@ -67,46 +44,23 @@
     if (!module) {
       return;
     }
-
     const setNameBtn = module.settings.find((entry) => entry.n === 'Set Name');
     if (setNameBtn && setNameBtn.v) {
       setNameBtn.v = 0;
-      const input = window.prompt('输入伪装名字（留空则使用原账号名）:', getStoredCustomName());
+      const input = window.prompt('输入自定义 Bilibili 名字（留空则使用原账号名）:', getStoredCustomName());
       if (input !== null) {
         setStoredCustomName(input);
         lastSentKey = '';
         lastSentAt = 0;
       }
     }
-
-    const setUidBtn = module.settings.find((entry) => entry.n === 'Set Custom ID');
-    if (setUidBtn && setUidBtn.v) {
-      setUidBtn.v = 0;
-      const input = window.prompt('输入自定义 ID（留空则恢复随机）:', getStoredCustomUid());
-      if (input !== null) {
-        const clean = input.trim();
-        setStoredCustomUid(clean);
-        const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
-        if (modeSetting && clean) modeSetting.v = 1;
-        else if (modeSetting && !clean && modeSetting.v === 1) modeSetting.v = 0;
-        lastSentKey = '';
-        lastSentAt = 0;
-      }
-    }
-
-    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
-    const mode = modeSetting?.vals?.[modeSetting.v] === 'Custom' ? 'Custom' : 'Random';
-    const customUid = getStoredCustomUid();
     const customName = getStoredCustomName();
-    module.disp = customName || (mode === 'Custom' && customUid ? customUid.slice(-6) : mode);
-
+    module.disp = customName || '';
     const now = performance.now();
     const payload = {
       channel: CHANNEL,
       type: 'config',
       enabled: Boolean(module.on),
-      mode,
-      customUid,
       customName
     };
     const key = JSON.stringify(payload);
@@ -124,14 +78,12 @@
 
   register({
     name: 'UIDSpoof',
-    desc: 'Spoofs the online UID, custom name, and 16x16 random avatar.',
+    desc: 'Spoofs the online UID and disables the Potato login gate.',
     cat: 'Misc',
     nm: { l: 'uidspoof', ls: 'uid spoof', n: 'UIDSpoof', ns: 'UID Spoof' },
     disp: '',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Random generates a random ID; Custom uses your configured ID.', v: 0, vals: ['Random', 'Custom'] },
-      { t: 'b', n: 'Set Custom ID', d: 'Click to enter a custom ID.', v: 0 },
-      { t: 'b', n: 'Set Name', d: 'Click to set a custom spoofed name (empty = account name).', v: 0 }
+      { t: 'b', n: 'Set Name', d: 'Click to set a custom Bilibili nickname.', v: 0 }
     ],
     onRender: syncConfig,
     defaultOn: false,
@@ -349,10 +301,7 @@
     let enabled = false;
     let used = false;
     let uid = '';
-    let mode = 'Random';
-    let customUid = '';
     let customName = '';
-    let avatarUrl = '';
 
     function randomUid() {
       const bytes = new Uint8Array(30);
@@ -367,38 +316,8 @@
       return `toid_v1_k01_RRi_${encoded}`;
     }
 
-    function randomBlockAvatar() {
-      try {
-        const c = document.createElement('canvas');
-        c.width = 16;
-        c.height = 16;
-        const ctx = c.getContext('2d');
-        if (!ctx) return DEFAULT_AVATAR;
-        const palette = [];
-        const baseHue = Math.floor(Math.random() * 360);
-        for (let i = 0; i < 4; i++) {
-          const h = (baseHue + i * 35) % 360;
-          const s = 55 + Math.floor(Math.random() * 35);
-          const l = 38 + Math.floor(Math.random() * 35);
-          palette.push(`hsl(${h},${s}%,${l}%)`);
-        }
-        for (let y = 0; y < 16; y += 2) {
-          for (let x = 0; x < 8; x += 2) {
-            const col = palette[Math.floor(Math.random() * palette.length)];
-            ctx.fillStyle = col;
-            ctx.fillRect(x, y, 2, 2);
-            ctx.fillRect(14 - x, y, 2, 2);
-          }
-        }
-        return c.toDataURL('image/png');
-      } catch {
-        return DEFAULT_AVATAR;
-      }
-    }
-
     function freshIdentity() {
-      uid = mode === 'Custom' && customUid ? customUid : randomUid();
-      avatarUrl = randomBlockAvatar();
+      uid = randomUid();
     }
 
     function getToy() {
@@ -412,32 +331,18 @@
     const DEFAULT_AVATAR = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
 
     function profileIdentity() {
-      let baseNick = '';
       try {
         if (typeof Account !== 'undefined' && Account.data) {
-          baseNick = Account.data.nick || Account.data.name || '';
+          return {
+            nickname: customName || Account.data.nick || Account.data.name || '',
+            avatar: Account.data.avatar || DEFAULT_AVATAR
+          };
         }
-      } catch {}
+      } catch {
 
-      return {
-        nickname: customName || baseNick,
-        avatar: avatarUrl || DEFAULT_AVATAR
-      };
-    }
+      }
 
-    function applyAccountSpoof() {
-      if (!enabled) return;
-      try {
-        if (typeof Account !== 'undefined' && Account.data) {
-          if (customName) {
-            Account.data.nick = customName;
-            Account.data.name = customName;
-          }
-          if (avatarUrl) {
-            Account.data.avatar = avatarUrl;
-          }
-        }
-      } catch {}
+      return { nickname: customName || '', avatar: DEFAULT_AVATAR };
     }
 
     function clearBanState() {
@@ -462,7 +367,6 @@
         }
 
         used = true;
-        applyAccountSpoof();
         return {
           ...profileIdentity(),
           uid,
@@ -537,21 +441,14 @@
       }
 
       const wasEnabled = enabled;
-      const prevMode = mode;
-      const prevCustomUid = customUid;
       enabled = Boolean(data.enabled);
-      mode = data.mode === 'Custom' ? 'Custom' : 'Random';
-      customUid = String(data.customUid || '').trim();
       customName = String(data.customName || '').trim().slice(0, 24);
 
-      if ((!wasEnabled && enabled) || (enabled && (prevMode !== mode || prevCustomUid !== customUid))) {
+      if (!wasEnabled && enabled) {
         freshIdentity();
         clearBanState();
         installHook();
         installLoginBypass();
-        applyAccountSpoof();
-      } else if (enabled) {
-        applyAccountSpoof();
       }
 
       if (wasEnabled && !enabled && used) {
