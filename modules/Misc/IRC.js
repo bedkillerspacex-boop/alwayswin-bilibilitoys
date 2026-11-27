@@ -847,17 +847,23 @@
     } else {
       const syncPotatoRoom = () => {
         const g = window.game;
+        const xzeR = window.XZE?.R;
+        const xzeRid = xzeR && (xzeR.st === 'play' || xzeR.st === 'loading' || xzeR.net) ? (xzeR.rid || xzeR.net?.id || '') : '';
         const netCode = g?.net?.room?.code || g?.net?.opts?.room?.code || '';
-        const nextRoomId = netCode
-          ? `net:${netCode}`
-          : g?.p2pHost?.code
-            ? `p2p:${g.p2pHost.code}`
-            : g?.p2pGuest?.code
-              ? `p2p:${g.p2pGuest.code}`
-              : '';
+        const nextRoomId = xzeRid
+          ? `xze:${xzeRid}`
+          : netCode
+            ? `net:${netCode}`
+            : g?.p2pHost?.code
+              ? `p2p:${g.p2pHost.code}`
+              : g?.p2pGuest?.code
+                ? `p2p:${g.p2pGuest.code}`
+                : '';
         const nextPlayerId = !nextRoomId
           ? ''
-          : (g?.net?.eid > 0 ? String(g.net.eid) : String(g?.p2pGuest?.name || g?.net?.name || g?.player?.name || ''));
+          : xzeRid
+            ? (xzeR?.net?.me != null ? String(xzeR.net.me) : String(g?.net?.name || g?.player?.name || ''))
+            : (g?.net?.eid > 0 ? String(g.net.eid) : String(g?.p2pGuest?.name || g?.net?.name || g?.player?.name || ''));
         if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
           currentRoomId = nextRoomId;
           currentPlayerId = nextPlayerId;

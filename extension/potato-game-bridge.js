@@ -198,6 +198,7 @@
     return {
       _entity: entity,
       get id() {
+        if (entity.xzeNet != null) return String(entity.xzeNet);
         if (entity.id != null) return String(entity.id);
         if (entity.eid != null) return String(entity.eid);
         if (entity.peer?.id != null) return String(entity.peer.id);
