@@ -4,6 +4,7 @@
   const CHANNEL = 'solstice-uidspoof';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const CUSTOM_NAME_STORAGE_KEY = 'solstice.potato.uidspoof.name';
+  const CUSTOM_UID_STORAGE_KEY = 'solstice.potato.uidspoof.customUid';
   const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
   let lastSentKey = '';
@@ -29,6 +30,25 @@
         localStorage.setItem(CUSTOM_NAME_STORAGE_KEY, clean);
       } else {
         localStorage.removeItem(CUSTOM_NAME_STORAGE_KEY);
+      }
+    } catch {}
+  }
+
+  function getStoredCustomUid() {
+    try {
+      return String(localStorage.getItem(CUSTOM_UID_STORAGE_KEY) || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  function setStoredCustomUid(value) {
+    try {
+      const clean = String(value || '').trim();
+      if (clean) {
+        localStorage.setItem(CUSTOM_UID_STORAGE_KEY, clean);
+      } else {
+        localStorage.removeItem(CUSTOM_UID_STORAGE_KEY);
       }
     } catch {}
   }
@@ -59,14 +79,34 @@
       }
     }
 
+    const setUidBtn = module.settings.find((entry) => entry.n === 'Set Custom UID');
+    if (setUidBtn && setUidBtn.v) {
+      setUidBtn.v = 0;
+      const input = window.prompt('输入自定义 UID（如 toid_v1_k01_RRi_...，留空则恢复随机）:', getStoredCustomUid());
+      if (input !== null) {
+        const clean = input.trim();
+        setStoredCustomUid(clean);
+        const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
+        if (modeSetting && clean) modeSetting.v = 1;
+        else if (modeSetting && !clean && modeSetting.v === 1) modeSetting.v = 0;
+        lastSentKey = '';
+        lastSentAt = 0;
+      }
+    }
+
+    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'Custom' ? 'Custom' : 'Random';
+    const customUid = getStoredCustomUid();
     const customName = getStoredCustomName();
-    module.disp = customName || '';
+    module.disp = customName || (mode === 'Custom' && customUid ? customUid.slice(-6) : mode);
 
     const now = performance.now();
     const payload = {
       channel: CHANNEL,
       type: 'config',
       enabled: Boolean(module.on),
+      mode,
+      customUid,
       customName
     };
     const key = JSON.stringify(payload);
@@ -89,6 +129,8 @@
     nm: { l: 'uidspoof', ls: 'uid spoof', n: 'UIDSpoof', ns: 'UID Spoof' },
     disp: '',
     settings: [
+      { t: 'e', n: 'Mode', d: 'Random generates a random UID; Custom uses your configured UID.', v: 0, vals: ['Random', 'Custom'] },
+      { t: 'b', n: 'Set Custom UID', d: 'Click to enter a custom UID.', v: 0 },
       { t: 'b', n: 'Set Name', d: 'Click to set a custom spoofed name (empty = account name).', v: 0 }
     ],
     onRender: syncConfig,
@@ -307,6 +349,8 @@
     let enabled = false;
     let used = false;
     let uid = '';
+    let mode = 'Random';
+    let customUid = '';
     let customName = '';
     let avatarUrl = '';
 
@@ -353,7 +397,7 @@
     }
 
     function freshIdentity() {
-      uid = randomUid();
+      uid = mode === 'Custom' && customUid ? customUid : randomUid();
       avatarUrl = randomBlockAvatar();
     }
 
@@ -493,10 +537,14 @@
       }
 
       const wasEnabled = enabled;
+      const prevMode = mode;
+      const prevCustomUid = customUid;
       enabled = Boolean(data.enabled);
+      mode = data.mode === 'Custom' ? 'Custom' : 'Random';
+      customUid = String(data.customUid || '').trim();
       customName = String(data.customName || '').trim().slice(0, 24);
 
-      if (!wasEnabled && enabled) {
+      if ((!wasEnabled && enabled) || (enabled && (prevMode !== mode || prevCustomUid !== customUid))) {
         freshIdentity();
         clearBanState();
         installHook();
