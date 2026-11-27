@@ -238,6 +238,7 @@
       };
 
       let best = null;
+      let bestActor = null;
       let bestScore = Infinity;
 
       if (config.mode === 'Single' && lockedTargetKey) {
@@ -245,6 +246,7 @@
         const res = lockedActor ? evaluateActor(lockedActor) : null;
         if (res) {
           best = res.pt;
+          bestActor = lockedActor;
           bestScore = res.angle;
         } else {
           lockedTargetKey = '';
@@ -259,6 +261,7 @@
           if (res && res.angle < bestScore) {
             bestScore = res.angle;
             best = res.pt;
+            bestActor = actor;
             bestActorKey = actorKeyOf(actor);
           }
         }
@@ -269,6 +272,11 @@
 
       if (!best) {
         return;
+      }
+
+      if (bestActor) {
+        window.SolsticeAuraTarget = bestActor;
+        window.SolsticeAuraTargetAt = performance.now();
       }
 
       const dx = best.x - eye.x;

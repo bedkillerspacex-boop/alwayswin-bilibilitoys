@@ -372,6 +372,7 @@
               * (Number(gun.head) || 2)
               * Math.max(1, Number(gun.pellets) || 1);
             targetHudShotTarget = targetHudTargetId(entity);
+            window.__solsticeLastShotAt = performance.now();
           }
         }
       } catch {
@@ -507,14 +508,49 @@
     if (now - lastHudAt < 33) return;
     lastHudAt = now;
 
-    const actor = window.SolsticeAuraTarget;
+    let actor = window.SolsticeAuraTarget;
     const targetAt = Number(window.SolsticeAuraTargetAt) || 0;
-    const fresh = Boolean(
+    let fresh = Boolean(
       actor &&
+      actor.alive !== false &&
       game?.state === 'play' &&
       !game.ui?.screen &&
-      now - targetAt < 500
+      now - targetAt < 800
     );
+
+    if (!fresh && game?.state === 'play' && !game.ui?.screen && game?.player) {
+      const lp = localPlayer();
+      const all = remoteActors(lp);
+      if (targetHudShotTarget && now - (window.__solsticeLastShotAt || 0) < 2500) {
+        const hitActor = all.find((a) => a !== lp && targetHudTargetId(a._entity) === targetHudShotTarget && a.alive !== false);
+        if (hitActor) {
+          actor = hitActor;
+          fresh = true;
+        }
+      }
+      if (!fresh) {
+        const cam = cameraProxy();
+        const eye = cam.position;
+        const fwd = cam.getWorldDirection(makeVector());
+        let bestAngle = 10 * (Math.PI / 180);
+        for (const a of all) {
+          if (!isEnemy(a, lp) || a.isBot) continue;
+          const aim = headPoint(a, makeVector());
+          const dx = aim.x - eye.x;
+          const dy = aim.y - eye.y;
+          const dz = aim.z - eye.z;
+          const dist = Math.hypot(dx, dy, dz);
+          if (dist < 0.1 || dist > 80) continue;
+          const dot = Math.max(-1, Math.min(1, (dx * fwd.x + dy * fwd.y + dz * fwd.z) / dist));
+          const ang = Math.acos(dot);
+          if (ang < bestAngle && worldLineClear(eye, aim)) {
+            bestAngle = ang;
+            actor = a;
+            fresh = true;
+          }
+        }
+      }
+    }
 
     if (!fresh) {
       if (now - lastHudHiddenAt < 120) return;

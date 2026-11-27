@@ -74,7 +74,8 @@
       joined = true;
 
       if (setting('Show on join', true)) {
-        add('Connected to GOLDEN HOUR', 6);
+        const gameLabel = window.SolsticeGameId === 'potatoepic' ? 'POTATO EPIC' : 'GOLDEN HOUR';
+        add(`Connected to ${gameLabel}`, 6);
       }
     }
 
