@@ -229,7 +229,7 @@
         return entityBox(entity);
       },
       get name() {
-        const raw = entity.name ?? entity.rawName ?? entity.displayName ?? entity.customName ?? entity.type ?? 'Target';
+        const raw = entity.xzeName || entity.name || entity.rawName || entity.displayName || entity.customName || entity.type || 'Target';
         return String(raw).replace(/\u00a7./g, '').slice(0, 64);
       },
       get type() {
