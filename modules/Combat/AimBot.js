@@ -180,9 +180,20 @@
 
       const forward = player.pos.clone();
       const head = player.pos.clone();
-      camera.getWorldDirection(forward);
+      if (bridge.game === 'potatoepic') {
+        const cosPitch = Math.cos(player.pitch);
+        forward.set(
+          -Math.sin(player.yaw) * cosPitch,
+          Math.sin(player.pitch),
+          -Math.cos(player.yaw) * cosPitch
+        );
+      } else {
+        camera.getWorldDirection(forward);
+      }
 
-      const eye = camera.position;
+      const eye = typeof bridge.getEye === 'function'
+        ? bridge.getEye()
+        : (bridge.getFeature('thirdperson')?.getEye?.() || camera.position);
       const actorKeyOf = (a) => (a.id != null ? `id:${a.id}` : a.name ? `name:${a.name}` : '');
       const evaluateActor = (actor) => {
         const raw = typeof bridge.getRawPlayer === 'function' ? bridge.getRawPlayer(actor) : null;

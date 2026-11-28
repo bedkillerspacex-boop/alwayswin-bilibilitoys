@@ -729,6 +729,20 @@
     );
   }
 
+  function getEye() {
+    const p = game?.player;
+    if (!p) return makeVector(0, 0, 0);
+    try {
+      const eye = typeof window.XZ?.eyeOf === 'function' ? window.XZ.eyeOf(p) : null;
+      if (eye && eye.every(Number.isFinite)) {
+        return makeVector(eye[0], eye[1], eye[2]);
+      }
+    } catch {}
+    const pos = entityPosition(p);
+    const eyeH = p.sneaking ? 1.27 : 1.62;
+    return makeVector(pos.x, pos.y + eyeH, pos.z);
+  }
+
   function headPoint(actor, out = makeVector()) {
     const entity = actor?._entity;
     if (!entity) return out.set(0, 0, 0);
@@ -827,6 +841,7 @@
     getContext,
     getGH,
     isEnemy,
+    getEye,
     headPoint,
     worldLineClear,
     provide,

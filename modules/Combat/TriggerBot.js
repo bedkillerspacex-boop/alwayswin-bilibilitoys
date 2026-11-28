@@ -134,9 +134,20 @@
 
       const { player, camera, actors } = context;
       const forward = player.pos.clone();
-      camera.getWorldDirection(forward);
+      if (bridge.game === 'potatoepic') {
+        const cosPitch = Math.cos(player.pitch);
+        forward.set(
+          -Math.sin(player.yaw) * cosPitch,
+          Math.sin(player.pitch),
+          -Math.cos(player.yaw) * cosPitch
+        );
+      } else {
+        camera.getWorldDirection(forward);
+      }
 
-      const eye = camera.position;
+      const eye = typeof bridge.getEye === 'function'
+        ? bridge.getEye()
+        : (bridge.getFeature('thirdperson')?.getEye?.() || camera.position);
       let bestT = Infinity;
 
       for (const actor of actors) {
