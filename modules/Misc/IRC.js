@@ -588,6 +588,35 @@
     let roomCounts = {};
 
     const peersById = new Map();
+    const peersByName = new Map();
+
+    function normalizeName(value) {
+      return String(value || '').replace(/\u00a7./g, '').trim().toLowerCase();
+    }
+
+    function actorPeerInfo(actor) {
+      if (!actor) return null;
+      if (bridge.game === 'potatoepic') {
+        const candidates = [
+          actor.name,
+          actor._entity?.xzeName,
+          actor._entity?.peer?.name,
+          actor._entity?.peer?.nick,
+          actor._entity?.name
+        ];
+        for (const c of candidates) {
+          const norm = normalizeName(c);
+          if (norm && peersByName.has(norm)) {
+            return peersByName.get(norm);
+          }
+        }
+      }
+      if (actor.id != null) {
+        const byId = peersById.get(String(actor.id));
+        if (byId) return byId;
+      }
+      return null;
+    }
 
     function renderRoomIrcBadges() {
       const list = document.getElementById('online-list');
@@ -779,14 +808,25 @@
       }
 
       peersById.clear();
+      peersByName.clear();
 
       if (enabled && Array.isArray(data.peers)) {
+        const selfNorm = normalizeName(currentPlayerId);
         for (const peer of data.peers) {
-          if (peer && peer.playerId != null && String(peer.playerId) !== currentPlayerId) {
-            peersById.set(String(peer.playerId), {
+          if (peer && peer.playerId != null) {
+            const rawPid = String(peer.playerId);
+            const normPid = normalizeName(rawPid);
+            if (rawPid === currentPlayerId || (selfNorm && normPid === selfNorm)) {
+              continue;
+            }
+            const entry = {
               ircName: String(peer.ircName || peer.username || 'IRC'),
               protect: Boolean(peer.protect)
-            });
+            };
+            peersById.set(rawPid, entry);
+            if (normPid) {
+              peersByName.set(normPid, entry);
+            }
           }
         }
       }
@@ -802,31 +842,34 @@
         isEnabled: () => enabled && connected,
         getToken: () => bridge.ircToken || window.__alwayswinIrcToken || '',
         getServerOrigin: () => bridge.ircServer || DEFAULT_IRC_ORIGIN,
-        isIrcUser: (actor) => Boolean(actor && actor.id != null && peersById.has(String(actor.id))),
+        isIrcUser: (actor) => Boolean(actorPeerInfo(actor)),
         getIrcInfo: (actor) => {
-          if (!actor || actor.id == null) {
+          if (!actor) {
             return null;
           }
 
-          const id = String(actor.id);
-          const peer = peersById.get(id);
-
+          const peer = actorPeerInfo(actor);
           if (peer) {
             return peer;
           }
 
-          if (enabled && connected && selfIrcName && currentPlayerId && id === currentPlayerId) {
-            return { ircName: selfIrcName, protect: protectIrc };
+          if (enabled && connected && selfIrcName && currentPlayerId) {
+            const id = actor.id != null ? String(actor.id) : '';
+            const normActor = normalizeName(actor.name);
+            const normSelf = normalizeName(currentPlayerId);
+            if ((id && id === currentPlayerId) || (normActor && normSelf && normActor === normSelf)) {
+              return { ircName: selfIrcName, protect: protectIrc };
+            }
           }
 
           return null;
         },
         isProtected: (actor) => {
-          if (!enabled || !protectIrc || !actor || actor.id == null) {
+          if (!enabled || !protectIrc || !actor) {
             return false;
           }
 
-          const info = peersById.get(String(actor.id));
+          const info = actorPeerInfo(actor);
           return Boolean(info && info.protect);
         }
       });
@@ -835,6 +878,7 @@
     bridge.onReset(() => {
       currentRoomId = '';
       peersById.clear();
+      peersByName.clear();
       postRoomToParent();
     });
 
@@ -861,11 +905,19 @@
               : g?.p2pGuest?.code
                 ? `p2p:${g.p2pGuest.code}`
                 : '';
+        const resolvePotatoUsername = () => {
+          let accName = '';
+          try {
+            if (typeof Account !== 'undefined') {
+              accName = Account?.name || Account?.data?.nick || Account?.data?.name || '';
+            }
+          } catch {}
+          const raw = g?.net?.name || g?.p2pGuest?.name || g?.p2pHost?.name || accName || g?.player?.name || '';
+          return String(raw || '').replace(/\u00a7./g, '').trim();
+        };
         const nextPlayerId = !nextRoomId
           ? ''
-          : xzeRid
-            ? (xzeR?.net?.me != null ? String(xzeR.net.me) : String(g?.net?.name || g?.player?.name || ''))
-            : (g?.net?.eid > 0 ? String(g.net.eid) : String(g?.p2pGuest?.name || g?.net?.name || g?.player?.name || ''));
+          : (resolvePotatoUsername() || (xzeR?.net?.me != null ? String(xzeR.net.me) : (g?.net?.eid > 0 ? String(g.net.eid) : '')));
         if (nextRoomId !== currentRoomId || nextPlayerId !== currentPlayerId) {
           currentRoomId = nextRoomId;
           currentPlayerId = nextPlayerId;
