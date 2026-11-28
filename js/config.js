@@ -463,6 +463,42 @@
     return true;
   }
 
+  function rename(from, to) {
+    const oldName = sanitizeName(from);
+    const newName = sanitizeName(to);
+    const data = store();
+
+    if (!oldName || !data[oldName]) {
+      notify(`Config ${from || '?'} does not exist.`);
+      return false;
+    }
+
+    if (!newName) {
+      notify('Config name is empty.');
+      return false;
+    }
+
+    if (oldName === newName) {
+      return true;
+    }
+
+    if (data[newName]) {
+      notify(`Config ${newName} already exists.`);
+      return false;
+    }
+
+    data[newName] = { ...data[oldName], name: newName, savedAt: Date.now() };
+    delete data[oldName];
+    writeStore(data);
+
+    if (localStorage.getItem(ACTIVE_KEY) === oldName) {
+      setActive(newName);
+    }
+
+    notify(`Renamed ${oldName} to ${newName}.`);
+    return true;
+  }
+
   /* ── disk mirror (extension bridge) ──────────────────────────────── */
 
   function bridge(action, payload) {
@@ -767,6 +803,7 @@
     load,
     remove,
     duplicate,
+    rename,
     exportFile,
     importFile,
     openFolder,

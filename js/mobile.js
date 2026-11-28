@@ -1,9 +1,10 @@
 (() => {
   'use strict';
 
-  const GUI_POS_KEY = 'solstice.mobile.guiPos';
-  const FS_POS_KEY = 'solstice.mobile.fsPos';
-  const SHORTCUTS_KEY = 'solstice.mobile.shortcuts';
+  const IS_POTATO = (typeof window !== 'undefined' && window.SolsticeGameId === 'potatoepic') || location.pathname.includes('/potatoepic/');
+  const GUI_POS_KEY = IS_POTATO ? 'solstice.potato.mobile.guiPos' : 'solstice.mobile.guiPos';
+  const FS_POS_KEY = IS_POTATO ? 'solstice.potato.mobile.fsPos' : 'solstice.mobile.fsPos';
+  const SHORTCUTS_KEY = IS_POTATO ? 'solstice.potato.mobile.shortcuts' : 'solstice.mobile.shortcuts';
 
   function isMobileDevice() {
     if (typeof S !== 'undefined' && S.isMobile) {

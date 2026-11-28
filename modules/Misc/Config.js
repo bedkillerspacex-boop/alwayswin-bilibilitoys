@@ -81,35 +81,38 @@
     }
 
     syncConfigList();
-    syncFlags(api);
 
     const name = selectedConfig();
 
     if (pressed('Save')) api.save(name);
-    if (pressed('Load')) api.load(name);
-    if (pressed('Delete')) api.remove(name);
+    if (pressed('Rename')) {
+      const next = window.prompt('Rename config:', name);
+      if (next !== null && next.trim()) {
+        const renamed = api.rename(name, next.trim());
+        if (renamed) {
+          syncConfigList();
+          const sel = button('Config');
+          const idx = sel ? sel.vals.indexOf(next.trim()) : -1;
+          if (sel && idx >= 0) sel.v = idx;
+        }
+      }
+    }
     if (pressed('Export')) api.exportFile(name);
     if (pressed('Import')) api.importFile();
-    if (pressed('Open Folder')) api.openFolder();
   }
 
   register({
     name: 'Config',
-    desc: 'Saves and loads your modules, binds and HUD layout.',
+    desc: 'Saves, renames, exports and imports your configs.',
     cat: 'Misc',
     nm: { l: 'config', ls: 'config', n: 'Config', ns: 'Config' },
     disp: 'Config',
     settings: [
       { t: 'e', n: 'Config', d: 'The configuration to work on.', v: 0, vals: ['Default'] },
       { t: 'b', n: 'Save', d: 'Writes the current setup into the selected config.', v: 0 },
-      { t: 'b', n: 'Load', d: 'Applies the selected config.', v: 0 },
-      { t: 'b', n: 'Delete', d: 'Deletes the selected config.', v: 0 },
+      { t: 'b', n: 'Rename', d: 'Renames the selected config.', v: 0 },
       { t: 'b', n: 'Export', d: 'Downloads the selected config as a .cfg file.', v: 0 },
-      { t: 'b', n: 'Import', d: 'Loads a .cfg file from disk.', v: 0 },
-      { t: 'b', n: 'Open Folder', d: 'Reveals the config folder on disk.', v: 0 },
-      { t: 'b', n: 'Autosave', d: 'Saves your setup automatically when it changes.', v: 1 },
-      { t: 'b', n: 'Save Hud', d: 'Includes the HUD element positions.', v: 1 },
-      { t: 'b', n: 'Save Binds', d: 'Includes the keybinds.', v: 1 }
+      { t: 'b', n: 'Import', d: 'Loads a .cfg file from disk.', v: 0 }
     ],
     renderOrder: 4,
     defaultOn: true,
