@@ -291,7 +291,15 @@
       for (const actor of actors) {
         if (!actor || !actor.pos || actor.isBot) continue;
         const rawEntity = actor._entity;
-        if (rawEntity && !rawEntity.peer && !rawEntity.xzeNet) continue;
+        const duel = window.XZ?.duel;
+        const isLadderHuman = Boolean(
+          rawEntity &&
+          rawEntity.xzDuel === true &&
+          rawEntity.remote === true &&
+          !duel?.ai &&
+          !(Array.isArray(duel?.bots) && duel.bots.some((b) => b && b.e === rawEntity))
+        );
+        if (rawEntity && !rawEntity.peer && !rawEntity.xzeNet && !isLadderHuman) continue;
         const isSelf = actor === player || (actor.id != null && player.id != null && String(actor.id) === String(player.id));
         if (ignoreSelf && isSelf) continue;
         if (ignoreTeammates && !isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;

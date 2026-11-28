@@ -206,10 +206,16 @@
         return raw ? String(raw).replace(/\u00a7./g, '').slice(0, 64) : null;
       },
       get isBot() {
+        const duel = window.XZ?.duel;
+        if (Array.isArray(duel?.bots) && duel.bots.some((b) => b && b.e === entity)) {
+          return true;
+        }
         if (entity?.xzeNet || entity?.peer || entity?.xzMate) return false;
+        if (entity?.xzDuel === true && entity?.remote === true && !duel?.ai) return false;
         return Boolean(
           entity?.type !== 'player' ||
           entity?.xzeBot ||
+          entity?.xzDummy ||
           entity?.bot ||
           entity?.isBot ||
           entity?.ai ||
