@@ -187,6 +187,7 @@
         "js/perf.js",
         "js/core.js",
         "modules/Visual/Watermark.js",
+        "modules/Visual/LevelInfo.js",
         "modules/Visual/ClickGuiFatality.js",
         "modules/Visual/ClickGui.js",
         "modules/Visual/HudEditor.js",

@@ -620,6 +620,128 @@
     }, PARENT_ORIGIN);
   }
 
+  let lastLevelInfoAt = 0;
+  let lastLevelTick = -1;
+  let lastLevelTickPos = null;
+  let levelBps = 0;
+  const levelBpsHistory = [];
+
+  function postLevelInfo(now) {
+    try {
+      if (window.parent === window) return;
+
+      if (now - lastLevelInfoAt < 33) return;
+      const prevAt = lastLevelInfoAt;
+      lastLevelInfoAt = now;
+
+      const player = game?.player;
+      const position = player?.pos;
+      let x = null;
+      let y = null;
+      let z = null;
+      let bps = 0;
+      let averageBps = 0;
+
+      if (position && Number.isFinite(Number(position[0]))) {
+        x = Number(position[0]);
+        y = Number(position[1]);
+        z = Number(position[2]);
+
+        const tick = Number(game?.tickCount);
+
+        if (Number.isFinite(tick)) {
+          if (lastLevelTickPos && tick !== lastLevelTick) {
+            const tickDelta = Math.max(1, tick - lastLevelTick);
+            const distance = Math.hypot(x - lastLevelTickPos[0], z - lastLevelTickPos[2]);
+            levelBps = distance / tickDelta * 20;
+            levelBpsHistory.push({ at: now, bps: levelBps });
+
+            while (levelBpsHistory.length && now - levelBpsHistory[0].at > 1000) {
+              levelBpsHistory.shift();
+            }
+          }
+
+          lastLevelTick = tick;
+          lastLevelTickPos = [x, y, z];
+          bps = levelBps;
+        } else if (lastLevelTickPos) {
+          const elapsed = Math.max(0.001, Math.min(0.5, (now - prevAt) / 1000));
+          const distance = Math.hypot(x - lastLevelTickPos[0], z - lastLevelTickPos[2]);
+          bps = distance / elapsed;
+          lastLevelTickPos = [x, y, z];
+        } else {
+          lastLevelTickPos = [x, y, z];
+        }
+
+        if (levelBpsHistory.length) {
+          let total = 0;
+
+          for (const sample of levelBpsHistory) {
+            total += sample.bps;
+          }
+
+          averageBps = total / levelBpsHistory.length;
+        }
+      } else {
+        lastLevelTick = -1;
+        lastLevelTickPos = null;
+        levelBps = 0;
+        levelBpsHistory.length = 0;
+      }
+
+      let seed = null;
+
+      try {
+        const R = window.XZE?.R;
+
+        if (R && R.st === 'play' && R.seed != null) {
+          seed = String(R.seed);
+        }
+      } catch {
+
+      }
+
+      let ping = null;
+
+      try {
+        let telemetry = null;
+
+        try {
+          telemetry = typeof Telemetry !== 'undefined' ? Telemetry : null;
+        } catch {
+
+        }
+
+        if (!telemetry) {
+          telemetry = window.Telemetry || null;
+        }
+
+        const samples = telemetry?.rtt;
+
+        if (Array.isArray(samples) && samples.length) {
+          ping = Math.round(samples[samples.length - 1]);
+        }
+      } catch {
+
+      }
+
+      window.parent.postMessage({
+        channel: 'solstice-levelinfo',
+        type: 'state',
+        playing: game?.state === 'play',
+        x,
+        y,
+        z,
+        bps,
+        averageBps,
+        ping,
+        seed
+      }, PARENT_ORIGIN);
+    } catch {
+
+    }
+  }
+
   let lastInputAt = 0;
 
   function postInputState(now) {
@@ -651,6 +773,11 @@
   function runFrame(now) {
     const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = now;
+    try {
+      postLevelInfo(now);
+    } catch {
+
+    }
     try {
       postTargetHud(now);
     } catch {
@@ -890,6 +1017,10 @@
           }
         } catch {}
       }
+      return;
+    }
+    if (data.channel === 'solstice-levelinfo' && data.type === 'request') {
+      postLevelInfo(performance.now());
       return;
     }
     const handlers = configHandlers.get(data.channel);
