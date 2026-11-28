@@ -871,20 +871,30 @@
       const point = aimScratch || (aimScratch = context.player.pos.clone());
       bridge.headPoint(actor, point);
 
-      const dx = point.x - eye.x;
-      const dy = point.y - eye.y;
-      const dz = point.z - eye.z;
-      const distance = Math.hypot(dx, dy, dz);
+      let aimX = point.x;
+      let aimY = point.y;
+      let aimZ = point.z;
+      let distance = Math.hypot(aimX - eye.x, aimY - eye.y, aimZ - eye.z);
+      let realClear = config.attackThroughWalls || bridge.worldLineClear(eye, point);
 
-      if (distance > config.range) {
+      const bt = bridge.getFeature('backtrack')?.getAimPoint?.(actor);
+      if (bt) {
+        const btDist = Math.hypot(bt.x - eye.x, bt.y - eye.y, bt.z - eye.z);
+        const btClear = config.attackThroughWalls || bridge.worldLineClear(eye, bt);
+        if (btClear && btDist <= config.range && (!realClear || btDist < distance)) {
+          aimX = bt.x;
+          aimY = bt.y;
+          aimZ = bt.z;
+          distance = btDist;
+          realClear = true;
+        }
+      }
+
+      if (distance > config.range || !realClear) {
         return null;
       }
 
-      if (!config.attackThroughWalls && !bridge.worldLineClear(eye, point)) {
-        return null;
-      }
-
-      return { actor, point: { x: point.x, y: point.y, z: point.z }, distance };
+      return { actor, point: { x: aimX, y: aimY, z: aimZ }, distance };
     }
 
     function selectTarget(context) {

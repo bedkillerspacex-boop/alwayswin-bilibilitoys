@@ -205,6 +205,10 @@
         }
 
         const points = [{ x: head.x, y: head.y, z: head.z }];
+        const btPt = bridge.getFeature('backtrack')?.getAimPoint?.(actor);
+        if (btPt) {
+          points.push({ x: btPt.x, y: btPt.y, z: btPt.z });
+        }
         if (config.dontLockHead) {
           const box = Array.isArray(actor.box) && actor.box.length >= 6 ? actor.box : null;
           const bx = raw ? raw.x : box ? (box[0] + box[3]) * 0.5 : actor.pos.x;

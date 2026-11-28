@@ -64,7 +64,8 @@
       resetOnGround: Boolean(setting(module, 'Reset On Ground', 1)),
       resetOnDisable: Boolean(setting(module, 'Reset On Disable', 1)),
       debug: Boolean(setting(module, 'Debug', 0)),
-      step: Number(setting(module, 'Step', 2.5))
+      step: Number(setting(module, 'Step', 2.5)),
+      blinkPulse: Number(setting(module, 'Blink Pulse', 250))
     }, GAME_ORIGIN);
     lastSentAt = now;
   }
@@ -77,7 +78,7 @@
     nm: { l: 'fly', ls: 'fly', n: 'Fly', ns: 'Fly' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'The mode of the fly.', v: 0, vals: ['Motion', 'Elytra', 'Pregame', 'Jump', 'Vertical'] },
+      { t: 'e', n: 'Mode', d: 'The mode of the fly.', v: 0, vals: ['Motion', 'Elytra', 'Pregame', 'Jump', 'Vertical', 'Blink'] },
       { t: 'b', n: 'Apply Glide Flags', d: 'Always sends the glide packet while flying.', v: 1 },
       { t: 'n', n: 'Speed', d: 'The speed of the fly.', v: 5.6, min: 0, max: 20, step: 0.1 },
       { t: 'b', n: 'Speed Friction', d: 'Applies friction to speed.', v: 1 },
@@ -89,7 +90,8 @@
       { t: 'b', n: 'Reset On Ground', d: 'Reset the airjump height when on ground.', v: 1 },
       { t: 'b', n: 'Reset On Disable', d: 'Resets velocity when you disable.', v: 1 },
       { t: 'b', n: 'Debug', d: 'Displays debug messages.', v: 0 },
-      { t: 'n', n: 'Step', d: 'The step of the vertical fly.', v: 2.5, min: 1, max: 5, step: 0.01 }
+      { t: 'n', n: 'Step', d: 'The step of the vertical fly.', v: 2.5, min: 1, max: 5, step: 0.01 },
+      { t: 'n', n: 'Blink Pulse', d: 'Interval in ms to flush queued movement packets in Blink mode.', v: 250, min: 50, max: 2000, step: 10 }
     ],
     onRender: syncConfig,
     onEnable() {
@@ -145,7 +147,8 @@
       resetOnGround: true,
       resetOnDisable: true,
       debug: false,
-      step: 2.5
+      step: 2.5,
+      blinkPulse: 250
     };
     let currentY = 0;
     let lastJump = 0;
@@ -155,6 +158,68 @@
     let verticalTop = null;
     let verticalDone = false;
     let hookedPlayer = null;
+    const blinkQueue = [];
+    let lastBlinkFlushAt = 0;
+
+    function isMovementPacket(data) {
+      if (typeof data === 'string') {
+        return data.includes('"t":"s"') || data.includes('"t":"move"') || data.includes('"t":"pos"') || data.includes('"t":"glide"');
+      }
+      if (data && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer)) {
+        return data.t === 's' || data.t === 'move' || data.t === 'pos' || data.t === 'glide';
+      }
+      return false;
+    }
+
+    function flushBlinkQueue() {
+      if (!blinkQueue.length) {
+        lastBlinkFlushAt = performance.now();
+        return;
+      }
+      const items = blinkQueue.splice(0, blinkQueue.length);
+      lastBlinkFlushAt = performance.now();
+      for (const item of items) {
+        try {
+          if (item.target && typeof item.target.readyState === 'number' && item.target.readyState !== 1) {
+            continue;
+          }
+          if (item.target && typeof item.target.readyState === 'string' && item.target.readyState !== 'open') {
+            continue;
+          }
+          item.fn.call(item.target, item.data);
+        } catch {}
+      }
+    }
+
+    function installBlinkHooks() {
+      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeFlyBlink) {
+        const origSend = WebSocket.prototype.send;
+        const wrapped = function flyBlinkWsSend(data) {
+          if (enabled && config.mode === 'Blink' && isMovementPacket(data)) {
+            blinkQueue.push({ target: this, fn: origSend, data });
+            if (blinkQueue.length >= 120) flushBlinkQueue();
+            return;
+          }
+          return origSend.call(this, data);
+        };
+        Object.defineProperty(wrapped, '__solsticeFlyBlink', { value: true });
+        WebSocket.prototype.send = wrapped;
+      }
+
+      if (typeof RTCDataChannel === 'function' && !RTCDataChannel.prototype.send.__solsticeFlyBlink) {
+        const origRtcSend = RTCDataChannel.prototype.send;
+        const wrappedRtc = function flyBlinkRtcSend(data) {
+          if (enabled && config.mode === 'Blink' && isMovementPacket(data)) {
+            blinkQueue.push({ target: this, fn: origRtcSend, data });
+            if (blinkQueue.length >= 120) flushBlinkQueue();
+            return;
+          }
+          return origRtcSend.call(this, data);
+        };
+        Object.defineProperty(wrappedRtc, '__solsticeFlyBlink', { value: true });
+        RTCDataChannel.prototype.send = wrappedRtc;
+      }
+    }
 
     function debug(message) {
       if (config.debug) {
@@ -356,7 +421,7 @@
       const wasEnabled = enabled;
       enabled = Boolean(data.enabled);
       config = {
-        mode: ['Motion', 'Elytra', 'Pregame', 'Jump', 'Vertical'].includes(data.mode) ? data.mode : 'Motion',
+        mode: ['Motion', 'Elytra', 'Pregame', 'Jump', 'Vertical', 'Blink'].includes(data.mode) ? data.mode : 'Motion',
         applyGlideFlags: data.applyGlideFlags !== false,
         speed: Math.max(0, Math.min(20, Number(data.speed) || 0)),
         speedFriction: data.speedFriction !== false,
@@ -368,7 +433,8 @@
         resetOnGround: data.resetOnGround !== false,
         resetOnDisable: data.resetOnDisable !== false,
         debug: data.debug === true,
-        step: Math.max(1, Math.min(5, Number(data.step) || 1))
+        step: Math.max(1, Math.min(5, Number(data.step) || 1)),
+        blinkPulse: Math.max(50, Math.min(2000, Number(data.blinkPulse) || 250))
       };
 
       const player = window.game?.player;
@@ -377,6 +443,7 @@
         currentY = player.pos[1];
         currentFriction = 1;
         lastJump = performance.now();
+        lastBlinkFlushAt = performance.now();
         lastHurtTime = player.hurtTime || 0;
         damageUntil = 0;
         verticalTop = config.mode === 'Vertical' ? topY(player) : null;
@@ -386,14 +453,25 @@
       }
 
       if (!enabled && wasEnabled) {
+        flushBlinkQueue();
         resetFlight(player);
         debug('disabled');
+      } else if (enabled && config.mode !== 'Blink' && blinkQueue.length) {
+        flushBlinkQueue();
       }
 
+      installBlinkHooks();
       installTravelHook(window.game);
     });
 
+    installBlinkHooks();
     installTravelHook(window.game);
-    setInterval(() => installTravelHook(window.game), 500);
+    setInterval(() => {
+      installBlinkHooks();
+      installTravelHook(window.game);
+      if (enabled && config.mode === 'Blink' && blinkQueue.length && performance.now() - lastBlinkFlushAt >= config.blinkPulse) {
+        flushBlinkQueue();
+      }
+    }, 30);
   }
 })();
