@@ -287,13 +287,17 @@
       if (!player || !Array.isArray(actors)) return;
 
       const mode = window.XZE ? 1 : 0;
+      const activeKeys = new Set();
       for (const actor of actors) {
         if (!actor || !actor.pos || actor.isBot) continue;
+        const rawEntity = actor._entity;
+        if (rawEntity && !rawEntity.peer && !rawEntity.xzeNet) continue;
         const isSelf = actor === player || (actor.id != null && player.id != null && String(actor.id) === String(player.id));
         if (ignoreSelf && isSelf) continue;
         if (ignoreTeammates && !isSelf && actor.team != null && player.team != null && Number(actor.team) === Number(player.team)) continue;
         const key = String(actor.id ?? actor.name ?? '');
         if (!key) continue;
+        activeKeys.add(key);
 
         let batcher = batchers.get(key);
         if (!batcher) {
@@ -316,6 +320,12 @@
           flags,
           String(actor.weapon || 'unknown').toLowerCase()
         );
+      }
+
+      for (const key of batchers.keys()) {
+        if (!activeKeys.has(key)) {
+          batchers.delete(key);
+        }
       }
     }
 

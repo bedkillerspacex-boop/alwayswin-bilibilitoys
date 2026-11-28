@@ -210,6 +210,10 @@
         return Boolean(
           entity?.type !== 'player' ||
           entity?.xzeBot ||
+          entity?.bot ||
+          entity?.isBot ||
+          entity?.ai ||
+          (!entity?.peer && !entity?.xzeNet) ||
           (typeof entity?.look?.skin === 'string' && entity.look.skin.startsWith('p:xze_'))
         );
       },
@@ -229,7 +233,7 @@
         return entityBox(entity);
       },
       get name() {
-        const raw = entity.xzeName || entity.name || entity.rawName || entity.displayName || entity.customName || entity.type || 'Target';
+        const raw = entity.xzeName || entity.peer?.name || entity.peer?.nick || entity.name || entity.rawName || entity.displayName || entity.customName || entity.type || 'Target';
         return String(raw).replace(/\u00a7./g, '').slice(0, 64);
       },
       get type() {
