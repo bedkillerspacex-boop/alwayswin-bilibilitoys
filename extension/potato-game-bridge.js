@@ -1134,7 +1134,7 @@
       Object.defineProperty(socket, 'send', {
         configurable: true,
         value: function send(data) {
-          if (typeof data === 'string' && data.includes('"ic"')) {
+          if (!window.__solsticeDisablerActive && typeof data === 'string' && data.includes('"ic"')) {
             try {
               if (JSON.parse(data)?.t === 'ic') {
                 return undefined;

@@ -60,10 +60,12 @@ function computeThemed(index) {
   const cols = th === 'Custom' ? customColors() : THEMES[th] || THEMES.Sunset;
   if (!cols.length) return [255, 255, 255];
   const time = 10000 / colorSpeed();
-  const angle = (Math.floor(NOW_MS) + Math.floor(index)) % Math.max(1, Math.floor(time));
+  const modTime = Math.max(1, Math.floor(time));
+  const rawIdx = Math.floor(Number(NOW_MS) || 0) + Math.floor(Number(index) || 0);
+  const angle = ((rawIdx % modTime) + modTime) % modTime;
   const seg = time / cols.length;
-  const si = Math.floor(angle / seg);
-  const f = angle / seg - si;
+  const si = Math.max(0, Math.floor(angle / seg));
+  const f = Math.max(0, Math.min(1, angle / seg - si));
   return lerpC(cols[si % cols.length], cols[(si + 1) % cols.length], f);
 }
 /* 同一帧内同一个 index 只算一次（Arraylist 每行、Watermark 每字都会问） */

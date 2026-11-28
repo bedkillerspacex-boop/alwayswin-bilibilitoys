@@ -216,6 +216,7 @@
         "modules/Misc/TouchSpoofer.js",
         "potato/modules/Misc/UnLock.js",
         "potato/modules/Misc/EntityControl.js",
+        "potato/modules/Misc/Disabler.js",
         "modules/Misc/ToggleSounds.js",
         "modules/Misc/InputGuard.js",
         "modules/Misc/Config.js",
@@ -272,6 +273,7 @@
         "modules/Misc/TouchSpoofer.js",
         "potato/modules/Misc/UnLock.js",
         "potato/modules/Misc/EntityControl.js",
+        "potato/modules/Misc/Disabler.js",
         "modules/Misc/IRC.js",
         "modules/Misc/PotatoAntiCheat.js",
         "modules/Misc/FastStealer.js"

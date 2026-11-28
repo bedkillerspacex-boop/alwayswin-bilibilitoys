@@ -306,10 +306,26 @@
     installNetworkSpoof();
     setInterval(() => {
       installNetworkSpoof();
-      if (enabled && keepKbm && window.game?.settings && window.game.settings.rotatePortrait !== false) {
-        window.game.settings.rotatePortrait = false;
+      if (enabled && keepKbm) {
+        if (window.game?.settings && window.game.settings.rotatePortrait !== false) {
+          window.game.settings.rotatePortrait = false;
+        }
+        try {
+          if (typeof Stage !== 'undefined' && Stage && typeof Stage.want === 'function' && !Stage.want.__solsticeNoRot) {
+            const origWant = Stage.want;
+            const wrappedWant = function noRotWant(...args) {
+              if (enabled && keepKbm) return false;
+              return origWant.apply(this, args);
+            };
+            Object.defineProperty(wrappedWant, '__solsticeNoRot', { value: true });
+            Stage.want = wrappedWant;
+            if (Stage.rot && typeof Stage.update === 'function') {
+              Stage.update();
+            }
+          }
+        } catch {}
       }
-    }, 500);
+    }, 100);
     installKbmFallback();
 
     window.addEventListener('message', (event) => {
