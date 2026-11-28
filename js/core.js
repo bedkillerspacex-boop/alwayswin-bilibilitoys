@@ -261,8 +261,8 @@ function resetCats(){
   }
 }
 function resize(){
-  const perfCap=window.SolsticePerf?window.SolsticePerf.dprCap:3;
-  DPR=Math.min(window.devicePixelRatio||1,perfCap||3);
+  const perfCap=window.SolsticePerf?window.SolsticePerf.dprCap:2;
+  DPR=Math.min(window.devicePixelRatio||1,perfCap||2);
   W=window.innerWidth; H=window.innerHeight;
   canvas.width=Math.floor(W*DPR); canvas.height=Math.floor(H*DPR);
   canvas.style.width=W+'px'; canvas.style.height=H+'px';
