@@ -32,16 +32,19 @@
     const module = getMod('ThirdPerson');
     if (!module) return;
 
+    const modeSetting = module.settings.find((s) => s.n === 'Mode');
+    const mode = modeSetting?.vals?.[modeSetting.v] === 'Front' ? 'Front' : 'Back';
+
     const now = performance.now();
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'thirdperson',
       enabled: Boolean(module.on),
-      distance: valueOf(module, 'Distance', 3.2),
-      height: valueOf(module, 'Height', 0.35),
-      wallCheck: Boolean((module.settings.find((s) => s.n === 'Wall Check') || { v: 1 }).v),
-      body: Boolean((module.settings.find((s) => s.n === 'Show Body') || { v: 1 }).v)
+      mode,
+      distance: valueOf(module, 'Distance', 4.0),
+      height: valueOf(module, 'Height', 0.0),
+      wallCheck: Boolean((module.settings.find((s) => s.n === 'Wall Check') || { v: 1 }).v)
     };
     const key = JSON.stringify(config);
 
@@ -62,14 +65,14 @@
   register({
     game: 'potatoepic',
     name: 'ThirdPerson',
-    desc: 'Moves the camera behind your player in PotatoEpic.',
+    desc: 'Moves the camera behind or in front of your player in PotatoEpic.',
     cat: 'Visual',
     nm: { l: 'thirdperson', ls: 'third person', n: 'ThirdPerson', ns: 'Third Person' },
     disp: 'Distance',
     settings: [
-      { t: 'n', n: 'Distance', d: 'How far the camera sits behind you.', v: 3.2, min: 0.5, max: 10.0, step: 0.1 },
-      { t: 'n', n: 'Height', d: 'Vertical offset of the camera.', v: 0.35, min: -1.0, max: 2.5, step: 0.05 },
-      { t: 'b', n: 'Show Body', d: 'Renders your local player body when supported.', v: 1 },
+      { t: 'e', n: 'Mode', d: 'Camera direction relative to your player.', v: 0, vals: ['Back', 'Front'] },
+      { t: 'n', n: 'Distance', d: 'How far the camera sits from your player.', v: 4.0, min: 0.5, max: 10.0, step: 0.1 },
+      { t: 'n', n: 'Height', d: 'Vertical offset of the camera.', v: 0.0, min: -1.0, max: 2.5, step: 0.05 },
       { t: 'b', n: 'Wall Check', d: 'Prevents the third-person camera from clipping into walls.', v: 1 }
     ],
     renderOrder: 3,
@@ -100,48 +103,69 @@
 
   function installGame(bridge) {
     let enabled = false;
-    let distance = 3.2;
-    let height = 0.35;
+    let mode = 'Back';
+    let distance = 4.0;
+    let height = 0.0;
     let wallCheck = true;
-    let wantBody = true;
-    let lastRealEye = null;
+    let prevEnabled = false;
+    let savedPerspective = 0;
+
+    function realEye(game) {
+      const player = game?.player;
+      if (!player) return null;
+      try {
+        const eye = typeof window.XZ?.eyeOf === 'function' ? window.XZ.eyeOf(player) : null;
+        if (eye && eye.every(Number.isFinite)) {
+          return [eye[0], eye[1], eye[2]];
+        }
+      } catch {}
+      const pos = player.pos;
+      if (!pos) return null;
+      const eyeH = player.sneaking ? 1.27 : 1.62;
+      return [
+        Number(pos[0]) || 0,
+        (Number(pos[1]) || 0) + eyeH,
+        Number(pos[2]) || 0
+      ];
+    }
 
     bridge.onConfig(CHANNEL, (data) => {
       if (data.type !== 'config' || data.module !== 'thirdperson') {
         return;
       }
       enabled = Boolean(data.enabled);
-      distance = bridge.clamp(Number(data.distance) || 3.2, 0.5, 10.0);
-      height = bridge.clamp(Number(data.height) || 0.35, -1.0, 2.5);
+      mode = data.mode === 'Front' ? 'Front' : 'Back';
+      distance = bridge.clamp(Number(data.distance) || 4.0, 0.5, 10.0);
+      height = bridge.clamp(Number(data.height) || 0.0, -1.0, 2.5);
       wallCheck = data.wallCheck !== false;
-      wantBody = data.body !== false;
+
+      const game = window.game;
+      if (game) {
+        if (enabled && !prevEnabled) {
+          savedPerspective = Number(game.perspective) || 0;
+        } else if (!enabled && prevEnabled) {
+          game.perspective = savedPerspective === 0 ? 0 : savedPerspective;
+        }
+      }
+      prevEnabled = enabled;
     });
 
     if (typeof bridge.provide === 'function') {
       bridge.provide('thirdperson', {
         getEye() {
-          if (lastRealEye) {
-            return { x: lastRealEye[0], y: lastRealEye[1], z: lastRealEye[2] };
-          }
-          const game = window.game;
-          const player = game?.player;
-          if (!player) return null;
-          try {
-            const eye = typeof window.XZ?.eyeOf === 'function' ? window.XZ.eyeOf(player) : null;
-            if (eye && eye.every(Number.isFinite)) {
-              return { x: eye[0], y: eye[1], z: eye[2] };
-            }
-          } catch {}
-          const pos = player.pos;
-          if (!pos) return null;
-          return {
-            x: Number(pos[0]) || 0,
-            y: (Number(pos[1]) || 0) + (Number(player.h) || 1.8) * 0.9,
-            z: Number(pos[2]) || 0
-          };
+          const e = realEye(window.game);
+          return e ? { x: e[0], y: e[1], z: e[2] } : null;
         }
       });
     }
+
+    bridge.onBeforePlayerUpdate(() => {
+      const game = window.game;
+      if (!game) return;
+      if (enabled) {
+        game.perspective = mode === 'Front' ? 2 : 1;
+      }
+    });
 
     function installHooks() {
       const game = window.game;
@@ -151,51 +175,67 @@
       if (typeof renderer.setCamera === 'function' && !renderer.setCamera.__solsticeThirdPerson) {
         const originalSetCamera = renderer.setCamera;
         const wrappedSetCamera = function thirdPersonSetCamera(pos, yaw, pitch, ...rest) {
-          if (!enabled || game.state !== 'play' || game.ui?.screen || !pos || typeof pos.length !== 'number' || pos.length < 3) {
-            lastRealEye = null;
+          if (!enabled || game.state !== 'play' || game.ui?.screen || !game.perspective || !pos || pos.length < 3) {
             return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
           }
 
-          const ex = Number(pos[0]);
-          const ey = Number(pos[1]);
-          const ez = Number(pos[2]);
-          if (!Number.isFinite(ex) || !Number.isFinite(ey) || !Number.isFinite(ez)) {
-            lastRealEye = null;
+          if (Math.abs(distance - 4.0) < 0.02 && Math.abs(height) < 0.01) {
             return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
           }
-          lastRealEye = [ex, ey, ez];
 
-          const y = Number(yaw) || 0;
-          const p = Number(pitch) || 0;
-          const cos = Math.cos(p);
-          const bx = Math.sin(y) * cos;
-          const by = -Math.sin(p);
-          const bz = Math.cos(y) * cos;
+          const eye = realEye(game);
+          if (!eye) {
+            return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
+          }
 
-          let tx = ex + bx * distance;
-          let ty = ey + by * distance + height;
-          let tz = ez + bz * distance;
+          const dx = Number(pos[0]) - eye[0];
+          const dy = Number(pos[1]) - eye[1];
+          const dz = Number(pos[2]) - eye[2];
+          const curDist = Math.hypot(dx, dy, dz);
+
+          if (!Number.isFinite(curDist) || curDist < 0.05) {
+            return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
+          }
+
+          const dirX = dx / curDist;
+          const dirY = dy / curDist;
+          const dirZ = dz / curDist;
+
+          // Native game already raycast-clamped curDist to <= 4.0
+          let targetDist = distance <= 4.0
+            ? curDist * (distance / 4.0)
+            : (curDist < 3.9 ? curDist : distance);
+
+          let tx = eye[0] + dirX * targetDist;
+          let ty = eye[1] + dirY * targetDist + height;
+          let tz = eye[2] + dirZ * targetDist;
 
           if (wallCheck && typeof game.raycast === 'function') {
-            const dx = tx - ex;
-            const dy = ty - ey;
-            const dz = tz - ez;
-            const len = Math.hypot(dx, dy, dz);
-            if (len > 0.05) {
+            const rdx = tx - eye[0];
+            const rdy = ty - eye[1];
+            const rdz = tz - eye[2];
+            const rLen = Math.hypot(rdx, rdy, rdz);
+            if (rLen > 0.05) {
               try {
                 const hit = game.raycast(
-                  [ex, ey, ez],
-                  [dx / len, dy / len, dz / len],
-                  len,
+                  eye,
+                  [rdx / rLen, rdy / rLen, rdz / rLen],
+                  rLen,
                   false,
                   true
                 );
-                if (hit && Number.isFinite(Number(hit.t)) && Number(hit.t) < len) {
-                  const hitT = Number(hit.t);
-                  const safeT = Math.max(0, Math.min(hitT * 0.8, hitT - 0.25));
-                  tx = ex + (dx / len) * safeT;
-                  ty = ey + (dy / len) * safeT;
-                  tz = ez + (dz / len) * safeT;
+                if (hit && Array.isArray(hit.point)) {
+                  const hitDist = Math.hypot(
+                    hit.point[0] - eye[0],
+                    hit.point[1] - eye[1],
+                    hit.point[2] - eye[2]
+                  );
+                  if (Number.isFinite(hitDist) && hitDist < rLen) {
+                    const safeDist = Math.max(0.05, hitDist - 0.2);
+                    tx = eye[0] + (rdx / rLen) * safeDist;
+                    ty = eye[1] + (rdy / rLen) * safeDist;
+                    tz = eye[2] + (rdz / rLen) * safeDist;
+                  }
                 }
               } catch {}
             }
