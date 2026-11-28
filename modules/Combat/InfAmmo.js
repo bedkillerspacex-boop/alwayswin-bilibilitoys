@@ -30,12 +30,14 @@
       return;
     }
 
+    const lastBullet = Boolean(module.settings.find((s) => s.n === 'Last Bullet')?.v);
     const now = performance.now();
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'infammo',
-      enabled: Boolean(module.on)
+      enabled: Boolean(module.on),
+      lastBullet
     };
     const key = JSON.stringify(config);
 
@@ -61,7 +63,9 @@
     cat: 'Combat',
     nm: { l: 'infammo', ls: 'inf ammo', n: 'InfAmmo', ns: 'Inf Ammo' },
     disp: '',
-    settings: [],
+    settings: [
+      { t: 'b', n: 'Last Bullet', d: 'Only keep infinite ammo when down to the last bullet.', v: 0 }
+    ],
     onRender: syncConfig,
     onEnable() {
       lastSentAt = 0;
@@ -93,9 +97,21 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let lastBullet = false;
     let setRoundsWrapped = false;
     let ammoCountWrapped = false;
     let takeAmmoWrapped = false;
+
+    function heldAtLastBullet(xz) {
+      try {
+        const held = window.game?.player?.inv?.held;
+        if (!held || !xz.isGun?.(held)) return false;
+        const r = typeof xz.rounds === 'function' ? Number(xz.rounds(held)) : Number(held.xz?.rounds);
+        return Number.isFinite(r) && r <= 1;
+      } catch {
+        return false;
+      }
+    }
 
     function installWrappers() {
       const xz = window.XZ;
@@ -108,6 +124,12 @@
         const originalSetRounds = xz.setRounds;
         const wrappedSetRounds = function infAmmoSetRounds(item, rounds) {
           if (enabled && xz.isGun(item)) {
+            if (lastBullet) {
+              if (Number(rounds) < 1) {
+                return originalSetRounds.call(this, item, 1);
+              }
+              return originalSetRounds.call(this, item, rounds);
+            }
             return originalSetRounds.call(this, item, xz.cap(item));
           }
 
@@ -122,7 +144,7 @@
       if (!ammoCountWrapped && typeof xz.ammoCount === 'function') {
         const originalAmmoCount = xz.ammoCount;
         const wrappedAmmoCount = function infAmmoCount(...args) {
-          if (enabled) {
+          if (enabled && (!lastBullet || heldAtLastBullet(xz))) {
             return 9999;
           }
 
@@ -137,7 +159,7 @@
       if (!takeAmmoWrapped && typeof xz.takeAmmo === 'function') {
         const originalTakeAmmo = xz.takeAmmo;
         const wrappedTakeAmmo = function infAmmoTakeAmmo(player, ammo, count) {
-          if (enabled) {
+          if (enabled && (!lastBullet || heldAtLastBullet(xz))) {
             return Math.max(0, Number(count) || 0);
           }
 
@@ -158,6 +180,7 @@
       }
 
       enabled = Boolean(data.enabled);
+      lastBullet = Boolean(data.lastBullet);
       installWrappers();
     });
 

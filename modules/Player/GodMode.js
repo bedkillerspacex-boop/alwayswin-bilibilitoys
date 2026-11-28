@@ -30,12 +30,14 @@
       return;
     }
 
+    const onlyLethal = Boolean(module.settings.find((s) => s.n === 'Only Lethal')?.v ?? 1);
     const now = performance.now();
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'godmode',
-      enabled: Boolean(module.on)
+      enabled: Boolean(module.on),
+      onlyLethal
     };
     const key = JSON.stringify(config);
 
@@ -61,7 +63,9 @@
     cat: 'Player',
     nm: { l: 'godmode', ls: 'god mode', n: 'GodMode', ns: 'God Mode' },
     disp: '',
-    settings: [],
+    settings: [
+      { t: 'b', n: 'Only Lethal', d: 'Only block hits that would kill you on the next shot.', v: 1 }
+    ],
     onRender: syncConfig,
     onEnable() {
       lastSentAt = 0;
@@ -94,6 +98,7 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let onlyLethal = true;
     let hook = null;
 
     function maxHealth(player) {
@@ -165,7 +170,8 @@
           typeof next === 'number' &&
           Number.isFinite(current) &&
           next < current &&
-          active(game, player)
+          active(game, player) &&
+          (!onlyLethal || next <= 0)
         ) {
           return;
         }
@@ -216,7 +222,13 @@
         const amount = typeof first === 'number' ? first : first?.amount ?? first?.damage ?? args[1];
 
         if (this === player && typeof amount === 'number' && amount > 0 && active(game, player)) {
-          return false;
+          if (!onlyLethal) {
+            return false;
+          }
+          const curHp = Number(player.health);
+          if (Number.isFinite(curHp) && curHp - amount <= 0) {
+            return false;
+          }
         }
 
         return Reflect.apply(original, this, args);
@@ -300,10 +312,12 @@
       }
 
       try {
-        const full = maxHealth(player);
+        if (!onlyLethal) {
+          const full = maxHealth(player);
 
-        if (player.health < full) {
-          player.health = full;
+          if (player.health < full) {
+            player.health = full;
+          }
         }
       } catch {
 
@@ -317,6 +331,7 @@
       }
 
       enabled = Boolean(data.enabled);
+      onlyLethal = data.onlyLethal !== false;
       reconcile(window.game);
     });
 
