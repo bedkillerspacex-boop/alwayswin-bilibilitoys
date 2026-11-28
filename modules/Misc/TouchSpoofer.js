@@ -304,7 +304,12 @@
 
     applyEnvironmentSpoof();
     installNetworkSpoof();
-    setInterval(installNetworkSpoof, 500);
+    setInterval(() => {
+      installNetworkSpoof();
+      if (enabled && keepKbm && window.game?.settings && window.game.settings.rotatePortrait !== false) {
+        window.game.settings.rotatePortrait = false;
+      }
+    }, 500);
     installKbmFallback();
 
     window.addEventListener('message', (event) => {
