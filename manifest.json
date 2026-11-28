@@ -217,6 +217,7 @@
         "potato/modules/Misc/UnLock.js",
         "potato/modules/Misc/EntityControl.js",
         "potato/modules/Misc/Disabler.js",
+        "potato/modules/Misc/KeylessUse.js",
         "modules/Misc/ToggleSounds.js",
         "modules/Misc/InputGuard.js",
         "modules/Misc/Config.js",
@@ -274,6 +275,7 @@
         "potato/modules/Misc/UnLock.js",
         "potato/modules/Misc/EntityControl.js",
         "potato/modules/Misc/Disabler.js",
+        "potato/modules/Misc/KeylessUse.js",
         "modules/Misc/IRC.js",
         "modules/Misc/PotatoAntiCheat.js",
         "modules/Misc/FastStealer.js"
