@@ -284,36 +284,44 @@
       return out;
     }
 
+    const hookedSet = new WeakSet();
+
     function hook() {
       const g = findGame();
       if (!g) return;
 
-      if (g.renderer && typeof g.renderer.setCamera === 'function' && !g.renderer.__ctlHook) {
+      if (g.renderer && typeof g.renderer.setCamera === 'function' && !hookedSet.has(g.renderer.setCamera)) {
         const oc = g.renderer.setCamera;
-        g.renderer.setCamera = function ctlCamera() {
+        const wrappedCam = function setCamera() {
           try { apply(); } catch {}
           return oc.apply(this, arguments);
         };
-        g.renderer.__ctlHook = 1;
+        Object.defineProperty(wrappedCam, '__solsticeCtlCam', { value: true });
+        hookedSet.add(wrappedCam);
+        g.renderer.setCamera = wrappedCam;
       }
 
-      if (typeof g.tick === 'function' && !g.__ctlTick) {
+      if (typeof g.tick === 'function' && !hookedSet.has(g.tick)) {
         const ot = g.tick;
-        g.tick = function ctlTick() {
+        const wrappedTick = function tick() {
           const r = ot.apply(this, arguments);
           try { apply(); } catch {}
           return r;
         };
-        g.__ctlTick = 1;
+        Object.defineProperty(wrappedTick, '__solsticeCtlTick', { value: true });
+        hookedSet.add(wrappedTick);
+        g.tick = wrappedTick;
       }
 
-      if (typeof g.render === 'function' && !g.__ctlRender) {
+      if (typeof g.render === 'function' && !hookedSet.has(g.render)) {
         const orr = g.render;
-        g.render = function ctlRender() {
+        const wrappedRender = function render() {
           try { apply(); } catch {}
           return orr.apply(this, arguments);
         };
-        g.__ctlRender = 1;
+        Object.defineProperty(wrappedRender, '__solsticeCtlRender', { value: true });
+        hookedSet.add(wrappedRender);
+        g.render = wrappedRender;
       }
     }
 

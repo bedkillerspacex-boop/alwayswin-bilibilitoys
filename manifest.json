@@ -116,6 +116,7 @@
         "https://www.bilibilitoy.com/toy/golden-hour/*"
       ],
       "js": [
+        "extension/native-guard.js",
         "extension/game-key-bridge.js",
         "modules/Misc/TouchSpoofer.js",
         "modules/Misc/UIDSpoof.js",

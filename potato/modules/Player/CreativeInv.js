@@ -136,6 +136,8 @@
     let xzeIconIds = new Set();
     let xzeIconHooked = false;
     const xzeIconCache = new Map();
+    let blankItemIcon = null;
+    const BLANK_ICON = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
     function game() {
       try {
@@ -210,6 +212,15 @@
 
       const original = UI.prototype.itemIcon;
 
+      const blankIcon = () => {
+        if (!blankItemIcon) {
+          blankItemIcon = new Image();
+          blankItemIcon.src = BLANK_ICON;
+        }
+
+        return blankItemIcon;
+      };
+
       UI.prototype.itemIcon = function creativeInvItemIcon(id) {
         if (!xzeIconIds.has(id)) {
           return original.call(this, id);
@@ -219,7 +230,7 @@
         let key = item && item.key;
 
         if (!key) {
-          return original.call(this, id);
+          return blankIcon();
         }
 
         if (key.startsWith('xzext:')) {
@@ -230,14 +241,14 @@
 
         try {
           url = window.XZE && typeof window.XZE.iconUrl === 'function'
-            ? window.XZE.iconUrl(key)
+            ? window.XZE.iconUrl({ k: key })
             : '';
         } catch {
           url = '';
         }
 
         if (!url) {
-          return original.call(this, id);
+          return blankIcon();
         }
 
         let image = xzeIconCache.get(url);
@@ -246,10 +257,6 @@
           image = new Image();
           image.src = url;
           xzeIconCache.set(url, image);
-        }
-
-        if (!image.complete || !image.naturalWidth) {
-          return original.call(this, id);
         }
 
         return image;
@@ -277,26 +284,6 @@
         return;
       }
 
-      const texOf = (key) => {
-        const id = ITEM_KEY[key];
-        const item = id === undefined ? null : ITEMS[id];
-        return item && item.tex;
-      };
-
-      const fallbackByCat = {
-        valuable: 'gold_ingot',
-        intel: 'paper',
-        elec: 'redstone',
-        medv: 'apple',
-        heal: 'apple',
-        tool: 'iron_ingot',
-        throw: 'snowball',
-        ammo: 'arrow',
-        armor: 'iron_chestplate',
-        helmet: 'iron_helmet',
-        bag: 'leather',
-        key: 'tripwire_hook'
-      };
 
       const keys = [];
 
@@ -319,9 +306,7 @@
 
         const stackDefault = ['armor', 'helmet', 'bag'].includes(source.cat) ? 1 : 64;
         const stack = Math.max(1, Math.min(64, Number(source.stack) || stackDefault));
-        const fallback = fallbackByCat[source.cat] || 'paper';
-        const tex = texOf(fallback) || texOf('paper');
-        const options = { stack, tex };
+        const options = { stack, tex: -1 };
 
         if (source.dur) {
           options.durability = Math.max(1, Number(source.dur) || 1);
@@ -372,6 +357,16 @@
       }
 
       xzeCreativeKeys = keys;
+
+      if (window.XZE && typeof window.XZE.iconUrl === 'function') {
+        for (const key of keys) {
+          try {
+            window.XZE.iconUrl({ k: key });
+          } catch {
+
+          }
+        }
+      }
 
       if (!CREATIVE_TABS.some((tab) => tab && tab.id === 'xzext')) {
         CREATIVE_TABS.push({

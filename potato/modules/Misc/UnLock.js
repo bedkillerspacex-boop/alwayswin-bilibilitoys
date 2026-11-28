@@ -376,7 +376,10 @@
     let skinObject = null;
     let originalSkinOwns = null;
     let originalViewDescriptor = null;
+    let originalSkinEquip = null;
+    let originalSkinEquipAll = null;
     let unlockedToken = '';
+    let lastAutoEquipKey = '';
     let lastAttempt = 0;
 
     function account() {
@@ -441,6 +444,190 @@
         ai: true
       };
       acc.save?.();
+    }
+
+    function sendAutoEquip(gun, skin) {
+      const acc = account();
+
+      if (!enabled || !acc || typeof acc.api !== 'function' || !acc.token) {
+        return;
+      }
+
+      try {
+        const request = acc.api('/api/potato/equip', {
+          gun,
+          skin: skin || null
+        });
+
+        if (request && typeof request.catch === 'function') {
+          request.catch(() => {});
+        }
+      } catch {
+
+      }
+    }
+
+    function syncStoredEquips() {
+      const acc = account();
+
+      if (!enabled || !acc || typeof acc.api !== 'function' || !acc.token) {
+        return;
+      }
+
+      let raw = '';
+
+      try {
+        raw = localStorage.getItem('potato_skins_sup') || '';
+      } catch {
+        return;
+      }
+
+      if (!raw || raw === lastAutoEquipKey) {
+        return;
+      }
+
+      let data = null;
+
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        return;
+      }
+
+      if (!data || typeof data !== 'object') {
+        return;
+      }
+
+      lastAutoEquipKey = raw;
+
+      for (const [gun, skin] of Object.entries(data)) {
+        if (gun === 'kn' || gun === 'knife') {
+          continue;
+        }
+
+        if (skin === null || typeof skin === 'string') {
+          sendAutoEquip(gun, skin);
+        }
+      }
+
+      const knife = data.kn || data.knife;
+
+      if (knife && typeof knife === 'object' && knife.key) {
+        try {
+          const request = acc.api('/api/potato/knife', {
+            knife: knife.key,
+            paint: knife.paint || null
+          });
+
+          if (request && typeof request.catch === 'function') {
+            request.catch(() => {});
+          }
+        } catch {
+
+        }
+      }
+    }
+
+    function installAutoEquip(skins) {
+      if (typeof skins.equip === 'function' && !skins.equip.__solsticeAutoEquip) {
+        originalSkinEquip = skins.equip;
+
+        const wrapped = function autoEquip(gun, skin, ...args) {
+          if (!enabled) {
+            return originalSkinEquip.apply(this, [gun, skin, ...args]);
+          }
+
+          const acc = account();
+          const nativeApi = acc && acc.api;
+          let result;
+
+          if (acc && typeof nativeApi === 'function') {
+            acc.api = function autoEquipApi(path, body, ...rest) {
+              if (
+                path === '/api/potato/equip' &&
+                body &&
+                body.gun === gun &&
+                (body.skin || null) === (skin || null)
+              ) {
+                return Promise.resolve({ view: null });
+              }
+
+              return nativeApi.apply(this, [path, body, ...rest]);
+            };
+          }
+
+          try {
+            result = originalSkinEquip.apply(this, [gun, skin, ...args]);
+          } finally {
+            if (acc && nativeApi) {
+              acc.api = nativeApi;
+            }
+          }
+
+          sendAutoEquip(gun, skin);
+
+          try {
+            lastAutoEquipKey = localStorage.getItem('potato_skins_sup') || '';
+          } catch {
+
+          }
+
+          return result;
+        };
+
+        Object.defineProperty(wrapped, '__solsticeAutoEquip', { value: true });
+        skins.equip = wrapped;
+      }
+
+      if (typeof skins.equipAll === 'function' && !skins.equipAll.__solsticeAutoEquip) {
+        originalSkinEquipAll = skins.equipAll;
+
+        const wrappedAll = function autoEquipAll(skin, ...args) {
+          if (!enabled) {
+            return originalSkinEquipAll.apply(this, [skin, ...args]);
+          }
+
+          const acc = account();
+          const nativeApi = acc && acc.api;
+          let result;
+
+          if (acc && typeof nativeApi === 'function') {
+            acc.api = function autoEquipAllApi(path, body, ...rest) {
+              if (
+                path === '/api/potato/equip' &&
+                body &&
+                body.gun === '*' &&
+                (body.skin || null) === (skin || null)
+              ) {
+                return Promise.resolve({ view: null });
+              }
+
+              return nativeApi.apply(this, [path, body, ...rest]);
+            };
+          }
+
+          try {
+            result = originalSkinEquipAll.apply(this, [skin, ...args]);
+          } finally {
+            if (acc && nativeApi) {
+              acc.api = nativeApi;
+            }
+          }
+
+          sendAutoEquip('*', skin);
+
+          try {
+            lastAutoEquipKey = localStorage.getItem('potato_skins_sup') || '';
+          } catch {
+
+          }
+
+          return result;
+        };
+
+        Object.defineProperty(wrappedAll, '__solsticeAutoEquip', { value: true });
+        skins.equipAll = wrappedAll;
+      }
     }
 
     function unlockSkinView(skins) {
@@ -518,6 +705,8 @@
 
       }
 
+      installAutoEquip(skins);
+
       try {
         Object.defineProperty(skins, '__solsticeUnlockView', { value: true });
       } catch {
@@ -534,6 +723,7 @@
 
       localUnlock();
       unlockSkinView(window.XZ?.skins);
+      syncStoredEquips();
 
       if (typeof acc.has === 'function' && !acc.has.__solsticePotatoUnlock) {
         originalHas = acc.has;
@@ -622,6 +812,14 @@
         Object.defineProperty(skinObject, 'v', originalViewDescriptor);
       }
 
+      if (skinObject && originalSkinEquip) {
+        skinObject.equip = originalSkinEquip;
+      }
+
+      if (skinObject && originalSkinEquipAll) {
+        skinObject.equipAll = originalSkinEquipAll;
+      }
+
       if (skinObject) {
         try {
           delete skinObject.__solsticeUnlockView;
@@ -633,6 +831,9 @@
       skinObject = null;
       originalSkinOwns = null;
       originalViewDescriptor = null;
+      originalSkinEquip = null;
+      originalSkinEquipAll = null;
+      lastAutoEquipKey = '';
       previousOwned = null;
       previousSuper = undefined;
 
