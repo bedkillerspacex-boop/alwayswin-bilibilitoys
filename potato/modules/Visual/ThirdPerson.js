@@ -122,7 +122,17 @@
     }
 
     function potatoCamHandler(game, r, yaw, pitch) {
-      if (!enabled || !isInMatch(game) || !r || r.length < 3) {
+      if (
+        !enabled ||
+        !isInMatch(game) ||
+        !r ||
+        r.length < 3 ||
+        !Number.isFinite(r[0]) ||
+        !Number.isFinite(r[1]) ||
+        !Number.isFinite(r[2]) ||
+        !Number.isFinite(yaw) ||
+        !Number.isFinite(pitch)
+      ) {
         return null;
       }
 
@@ -165,6 +175,10 @@
             }
           } catch {}
         }
+      }
+
+      if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(tz)) {
+        return null;
       }
 
       return {
