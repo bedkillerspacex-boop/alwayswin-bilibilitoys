@@ -107,11 +107,22 @@
     let distance = 3.5;
     let height = 0.35;
     let wallCheck = true;
-    let prevEnabled = false;
+    let activeInMatch = false;
     let savedPerspective = 0;
 
+    function isInMatch(game) {
+      const xzeR = window.XZE?.R;
+      return Boolean(
+        game &&
+        game.state === 'play' &&
+        !game.ui?.screen &&
+        game.player &&
+        (!xzeR || xzeR.st === 'play')
+      );
+    }
+
     function potatoCamHandler(game, r, yaw, pitch) {
-      if (!enabled || !r || r.length < 3) {
+      if (!enabled || !isInMatch(game) || !r || r.length < 3) {
         return null;
       }
 
@@ -163,6 +174,30 @@
       };
     }
 
+    function syncMatchState() {
+      const game = window.game;
+      const shouldActivate = enabled && isInMatch(game);
+
+      if (shouldActivate) {
+        if (!activeInMatch) {
+          savedPerspective = Number(game.perspective) || 0;
+          activeInMatch = true;
+        }
+        if (window.POTATO_CAM !== potatoCamHandler) {
+          window.POTATO_CAM = potatoCamHandler;
+        }
+        game.perspective = mode === 'Front' ? 2 : 1;
+      } else if (activeInMatch) {
+        activeInMatch = false;
+        if (window.POTATO_CAM === potatoCamHandler) {
+          window.POTATO_CAM = null;
+        }
+        if (game) {
+          game.perspective = savedPerspective === 0 ? 0 : savedPerspective;
+        }
+      }
+    }
+
     bridge.onConfig(CHANNEL, (data) => {
       if (data.type !== 'config' || data.module !== 'thirdperson') {
         return;
@@ -172,22 +207,7 @@
       distance = bridge.clamp(Number(data.distance) || 3.5, 0.5, 10.0);
       height = bridge.clamp(Number(data.height) || 0.35, -1.0, 2.5);
       wallCheck = data.wallCheck !== false;
-
-      const game = window.game;
-      if (enabled) {
-        window.POTATO_CAM = potatoCamHandler;
-        if (!prevEnabled && game) {
-          savedPerspective = Number(game.perspective) || 0;
-        }
-      } else {
-        if (window.POTATO_CAM === potatoCamHandler) {
-          window.POTATO_CAM = null;
-        }
-        if (prevEnabled && game) {
-          game.perspective = savedPerspective === 0 ? 0 : savedPerspective;
-        }
-      }
-      prevEnabled = enabled;
+      syncMatchState();
     });
 
     if (typeof bridge.provide === 'function') {
@@ -196,15 +216,7 @@
       });
     }
 
-    bridge.onBeforePlayerUpdate(() => {
-      const game = window.game;
-      if (!game) return;
-      if (enabled) {
-        if (window.POTATO_CAM !== potatoCamHandler) {
-          window.POTATO_CAM = potatoCamHandler;
-        }
-        game.perspective = mode === 'Front' ? 2 : 1;
-      }
-    });
+    bridge.onBeforePlayerUpdate(syncMatchState);
+    setInterval(syncMatchState, 100);
   }
 })();
