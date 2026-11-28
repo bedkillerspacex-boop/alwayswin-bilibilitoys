@@ -231,10 +231,22 @@
       return false;
     }
 
+    const wrappedObjects = new WeakMap();
+
     function wrapMethod(object, name, marker, replacement) {
       if (!object || typeof object[name] !== 'function' || object[name][marker]) {
         return;
       }
+
+      let seen = wrappedObjects.get(object);
+      if (seen && seen.has(name)) {
+        return;
+      }
+      if (!seen) {
+        seen = new Set();
+        wrappedObjects.set(object, seen);
+      }
+      seen.add(name);
 
       const original = object[name];
       const wrapped = function wrappedPotatoNoRecoil(...args) {

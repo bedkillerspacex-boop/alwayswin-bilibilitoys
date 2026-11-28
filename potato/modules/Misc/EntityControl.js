@@ -284,24 +284,14 @@
       return out;
     }
 
-    const hookedSet = new WeakSet();
+    const hookedGames = new WeakSet();
 
     function hook() {
       const g = findGame();
-      if (!g) return;
+      if (!g || hookedGames.has(g)) return;
+      hookedGames.add(g);
 
-      if (g.renderer && typeof g.renderer.setCamera === 'function' && !hookedSet.has(g.renderer.setCamera)) {
-        const oc = g.renderer.setCamera;
-        const wrappedCam = function setCamera() {
-          try { apply(); } catch {}
-          return oc.apply(this, arguments);
-        };
-        Object.defineProperty(wrappedCam, '__solsticeCtlCam', { value: true });
-        hookedSet.add(wrappedCam);
-        g.renderer.setCamera = wrappedCam;
-      }
-
-      if (typeof g.tick === 'function' && !hookedSet.has(g.tick)) {
+      if (typeof g.tick === 'function') {
         const ot = g.tick;
         const wrappedTick = function tick() {
           const r = ot.apply(this, arguments);
@@ -309,19 +299,7 @@
           return r;
         };
         Object.defineProperty(wrappedTick, '__solsticeCtlTick', { value: true });
-        hookedSet.add(wrappedTick);
         g.tick = wrappedTick;
-      }
-
-      if (typeof g.render === 'function' && !hookedSet.has(g.render)) {
-        const orr = g.render;
-        const wrappedRender = function render() {
-          try { apply(); } catch {}
-          return orr.apply(this, arguments);
-        };
-        Object.defineProperty(wrappedRender, '__solsticeCtlRender', { value: true });
-        hookedSet.add(wrappedRender);
-        g.render = wrappedRender;
       }
     }
 
