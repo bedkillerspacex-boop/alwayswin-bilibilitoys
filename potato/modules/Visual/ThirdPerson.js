@@ -151,14 +151,18 @@
       if (typeof renderer.setCamera === 'function' && !renderer.setCamera.__solsticeThirdPerson) {
         const originalSetCamera = renderer.setCamera;
         const wrappedSetCamera = function thirdPersonSetCamera(pos, yaw, pitch, ...rest) {
-          if (!enabled || game.state !== 'play' || game.ui?.screen || !Array.isArray(pos) || pos.length < 3) {
+          if (!enabled || game.state !== 'play' || game.ui?.screen || !pos || typeof pos.length !== 'number' || pos.length < 3) {
             lastRealEye = null;
             return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
           }
 
-          const ex = Number(pos[0]) || 0;
-          const ey = Number(pos[1]) || 0;
-          const ez = Number(pos[2]) || 0;
+          const ex = Number(pos[0]);
+          const ey = Number(pos[1]);
+          const ez = Number(pos[2]);
+          if (!Number.isFinite(ex) || !Number.isFinite(ey) || !Number.isFinite(ez)) {
+            lastRealEye = null;
+            return originalSetCamera.call(this, pos, yaw, pitch, ...rest);
+          }
           lastRealEye = [ex, ey, ez];
 
           const y = Number(yaw) || 0;
@@ -187,7 +191,8 @@
                   true
                 );
                 if (hit && Number.isFinite(Number(hit.t)) && Number(hit.t) < len) {
-                  const safeT = Math.max(0.25, Number(hit.t) - 0.2);
+                  const hitT = Number(hit.t);
+                  const safeT = Math.max(0, Math.min(hitT * 0.8, hitT - 0.25));
                   tx = ex + (dx / len) * safeT;
                   ty = ey + (dy / len) * safeT;
                   tz = ez + (dz / len) * safeT;
@@ -196,30 +201,11 @@
             }
           }
 
-          return originalSetCamera.call(this, [tx, ty, tz], yaw, pitch, ...rest);
+          const nextPos = Array.isArray(pos) ? [tx, ty, tz] : new pos.constructor([tx, ty, tz]);
+          return originalSetCamera.call(this, nextPos, yaw, pitch, ...rest);
         };
         Object.defineProperty(wrappedSetCamera, '__solsticeThirdPerson', { value: true });
         renderer.setCamera = wrappedSetCamera;
-      }
-
-      if (typeof game.render === 'function' && !game.render.__solsticeThirdPersonRender) {
-        const originalRender = game.render;
-        const wrappedRender = function thirdPersonRender(...args) {
-          const result = originalRender.apply(this, args);
-          if (enabled && wantBody && this.state === 'play' && !this.ui?.screen && this.player && this.renderer) {
-            const r = this.renderer;
-            try {
-              if (typeof r.drawPlayer === 'function') {
-                r.drawPlayer(this.player, this);
-              } else if (typeof r.renderPlayer === 'function') {
-                r.renderPlayer(this.player, this);
-              }
-            } catch {}
-          }
-          return result;
-        };
-        Object.defineProperty(wrappedRender, '__solsticeThirdPersonRender', { value: true });
-        game.render = wrappedRender;
       }
     }
 
