@@ -949,7 +949,7 @@
     splitBind,
     hasReservedModifier
   };
-  window.sol = execute;
+  window.aww = execute;
 
   if (typeof window.help === 'undefined') {
     window.help = commandHelp;
@@ -966,7 +966,7 @@
   if (!window.__solsticeConsoleHint) {
     window.__solsticeConsoleHint = true;
     console.log(
-      '%c[AlwaysWin]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main")',
+      '%c[AlwaysWin]%c Console commands: aww("help") | aww("bind Aura R") | aww("config save main")',
       'color:#ff5fa2;font-weight:bold',
       'color:inherit'
     );
