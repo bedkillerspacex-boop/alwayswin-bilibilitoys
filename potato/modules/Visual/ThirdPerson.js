@@ -28,6 +28,7 @@
 
     const modeSetting = module.settings.find((s) => s.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] || 'Shoulder';
+    const disableOutsideMatch = Boolean(module.settings.find((s) => s.n === 'Disable Outside Match')?.v);
     module.disp = mode;
 
     const now = performance.now();
@@ -36,7 +37,8 @@
       type: 'config',
       module: 'thirdperson',
       enabled: Boolean(module.on),
-      mode
+      mode,
+      disableOutsideMatch
     };
     const key = JSON.stringify(config);
 
@@ -62,7 +64,8 @@
     nm: { l: 'thirdperson', ls: 'third person', n: 'ThirdPerson', ns: 'Third Person' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'Shoulder = native over-the-shoulder; Back = 3rd-person back; Front = 3rd-person front.', v: 0, vals: ['Shoulder', 'Back', 'Front'] }
+      { t: 'e', n: 'Mode', d: 'Shoulder = native over-the-shoulder; Back = 3rd-person back; Front = 3rd-person front.', v: 0, vals: ['Shoulder', 'Back', 'Front'] },
+      { t: 'b', n: 'Disable Outside Match', d: 'Disable third-person outside active matches.', v: 0 }
     ],
     renderOrder: 3,
     onRender: syncConfig,
@@ -93,6 +96,7 @@
   function installGame(bridge) {
     let enabled = false;
     let mode = 'Shoulder';
+    let disableOutsideMatch = false;
     let applied = false;
 
     function isInMatch(game) {
@@ -110,7 +114,11 @@
       const game = window.game;
       if (!game) return;
 
-      if (enabled && isInMatch(game)) {
+      const canApply = disableOutsideMatch
+        ? isInMatch(game)
+        : Boolean(game.player && game.state === 'play');
+
+      if (enabled && canApply) {
         applied = true;
         if (mode === 'Shoulder') {
           game.potTP = 0;
@@ -137,6 +145,7 @@
       }
       enabled = Boolean(data.enabled);
       mode = ['Shoulder', 'Back', 'Front'].includes(data.mode) ? data.mode : 'Shoulder';
+      disableOutsideMatch = Boolean(data.disableOutsideMatch);
       applyNativeState();
     });
 
