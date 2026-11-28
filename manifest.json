@@ -256,6 +256,7 @@
       "js": [
         "extension/native-guard.js",
         "extension/potato-game-bridge.js",
+        "extension/creative-legacy.js",
         "modules/Visual/ESP.js",
         "modules/Visual/NoFog.js",
         "modules/Visual/NameTags.js",

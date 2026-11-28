@@ -149,6 +149,10 @@
 
     function creativeClass() {
       try {
+        if (typeof window.CreativeScreen === 'function') {
+          return window.CreativeScreen;
+        }
+
         return typeof CreativeScreen === 'function' ? CreativeScreen : null;
       } catch {
         return null;
@@ -270,10 +274,12 @@
         return;
       }
 
+      const creativeTabs = window.CREATIVE_TABS;
+
       if (
         typeof ITEM_KEY === 'undefined' ||
         typeof ITEMS === 'undefined' ||
-        typeof CREATIVE_TABS === 'undefined'
+        !Array.isArray(creativeTabs)
       ) {
         return;
       }
@@ -350,9 +356,46 @@
         def.tab = 'xzext';
         xzeIconIds.add(def.id);
         keys.push(key);
+
       }
 
-      if (!keys.length) {
+      const itemData = window.ITEM_DATA || (typeof ITEM_DATA !== 'undefined' ? ITEM_DATA : []);
+      const baseTabIds = new Set(creativeTabs.slice(0, 10).map((tab) => tab && tab.id));
+      const modTabGroups = new Map();
+      const modTabSeen = new Set();
+      const modTabNames = { xzext: '搜打撤' };
+
+      const addModKey = (tabId, key) => {
+        if (!tabId || baseTabIds.has(tabId) || modTabSeen.has(tabId + ':' + key)) {
+          return;
+        }
+
+        if (typeof ITEM_KEY === 'undefined' || ITEM_KEY[key] === undefined) {
+          return;
+        }
+
+        modTabSeen.add(tabId + ':' + key);
+
+        if (!modTabGroups.has(tabId)) {
+          modTabGroups.set(tabId, []);
+        }
+
+        modTabGroups.get(tabId).push(key);
+      };
+
+      if (Array.isArray(itemData)) {
+        for (const entry of itemData) {
+          if (entry && entry.tab && entry.key) {
+            addModKey(entry.tab, entry.key);
+          }
+        }
+      }
+
+      for (const key of keys) {
+        addModKey('xzext', key);
+      }
+
+      if (!keys.length && !modTabGroups.size) {
         return;
       }
 
@@ -368,13 +411,17 @@
         }
       }
 
-      if (!CREATIVE_TABS.some((tab) => tab && tab.id === 'xzext')) {
-        CREATIVE_TABS.push({
-          id: 'xzext',
-          name: '搜打撤',
-          icon: 'chest',
+      for (const [tabId, groupKeys] of modTabGroups) {
+        if (!groupKeys.length || creativeTabs.some((tab) => tab && tab.id === tabId)) {
+          continue;
+        }
+
+        creativeTabs.push({
+          id: tabId,
+          name: modTabNames[tabId] || tabId,
+          icon: groupKeys[0],
           get items() {
-            return xzeCreativeKeys.slice();
+            return groupKeys.slice();
           }
         });
       }
