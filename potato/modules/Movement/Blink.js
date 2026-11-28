@@ -201,7 +201,8 @@
       }
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 1.5;
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       if (w !== overlayW || h !== overlayH || dpr !== overlayDpr) {
         overlayW = w;
         overlayH = h;

@@ -11,9 +11,9 @@ const SolsticePerf = (() => {
   'use strict';
 
   const LEVELS = {
-    2: { name: 'High', detail: 1.0, glow: true, dpr: 2.0, ghosts: 14 },
-    1: { name: 'Balanced', detail: 0.75, glow: true, dpr: 1.75, ghosts: 8 },
-    0: { name: 'Low', detail: 0.5, glow: false, dpr: 1.5, ghosts: 4 }
+    2: { name: 'High', detail: 1.0, glow: true, dpr: 1.75, ghosts: 14 },
+    1: { name: 'Balanced', detail: 0.75, glow: true, dpr: 1.5, ghosts: 8 },
+    0: { name: 'Low', detail: 0.5, glow: false, dpr: 1.25, ghosts: 4 }
   };
 
   const state = {

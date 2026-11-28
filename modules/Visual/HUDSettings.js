@@ -195,7 +195,7 @@ function uiFont() {
     const active = Boolean(module.on);
     const maxFps = active ? Math.max(15, Math.min(144, Number(setting(module, 'Max Visual FPS', 60)) || 60)) : 144;
     const overlayFps = active ? Math.max(15, Math.min(144, Number(setting(module, 'Overlay FPS', 60)) || 60)) : 144;
-    const maxDpr = active ? Math.max(0.75, Math.min(2, Number(setting(module, 'Max DPR', 2.0)) || 2.0)) : 2;
+    const maxDpr = active ? Math.max(0.75, Math.min(2, Number(setting(module, 'Max DPR', 1.5)) || 1.5)) : 1.5;
     const reduceBlur = active ? Boolean(setting(module, 'Reduce Blur', true)) : false;
 
     window.SolsticeHudSettings = {
@@ -261,7 +261,7 @@ function uiFont() {
       { t: 'n', n: 'Easing Speed', d: 'The speed of the slot easing.', v: 20.0, min: 0.1, max: 20.0, step: 0.01 },
       { t: 'n', n: 'Max Visual FPS', d: 'Max redraw rate for parent HUD elements when GUI is closed.', v: 60, min: 15, max: 144, step: 5 },
       { t: 'n', n: 'Overlay FPS', d: 'Max redraw rate for in-game ESP, NameTags, and Backtrack overlays.', v: 60, min: 15, max: 144, step: 5 },
-      { t: 'n', n: 'Max DPR', d: 'Cap canvas pixel ratio to reduce GPU fill-rate on high-DPI screens.', v: 2.0, min: 0.75, max: 2.0, step: 0.25 },
+      { t: 'n', n: 'Max DPR', d: 'Cap canvas pixel ratio to reduce GPU fill-rate on high-DPI screens.', v: 1.5, min: 0.75, max: 2.0, step: 0.25 },
       { t: 'b', n: 'Reduce Blur', d: 'Skip heavy background blur filters while in-game.', v: 1 },
       { t: 'e', n: 'Quality', d: 'Auto scales detail to hold 60 fps; the rest lock a preset.', v: 0, vals: ['Auto', 'High', 'Balanced', 'Low'] }
     ],

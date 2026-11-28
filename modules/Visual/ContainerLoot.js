@@ -144,7 +144,8 @@
 
     function resizeCanvas() {
       if (!overlayCanvas || !overlayCtx) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 1.5;
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       const w = Math.max(1, window.innerWidth);
       const h = Math.max(1, window.innerHeight);
       const pw = Math.round(w * dpr);
@@ -183,7 +184,8 @@
       applyInstantSearch();
 
       if (!ensureOverlay()) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dprCap = Number(bridge.maxDpr) > 0 ? Number(bridge.maxDpr) : 1.5;
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       if (window.innerWidth !== overlayWidth || window.innerHeight !== overlayHeight || dpr !== overlayDpr) {
         resizeCanvas();
       }
