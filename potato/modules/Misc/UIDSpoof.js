@@ -316,8 +316,103 @@
       return `toid_v1_k01_RRi_${encoded}`;
     }
 
+    function uidFromSeed(seedText) {
+      const text = String(seedText || '').trim();
+      if (!text) return '';
+
+      const input = new TextEncoder().encode(`alwayswin:uid:v1:${text}`);
+      let h1 = 0x811c9dc5 >>> 0;
+      let h2 = 0x9e3779b9 >>> 0;
+      let h3 = 0x85ebca6b >>> 0;
+      let h4 = 0xc2b2ae35 >>> 0;
+
+      for (let i = 0; i < input.length; i++) {
+        const b = input[i];
+        h1 = Math.imul(h1 ^ b, 0x01000193) >>> 0;
+        h2 = Math.imul((h2 + b + (i * 17)) >>> 0, 0x85ebca6b) >>> 0;
+        h3 = Math.imul(h3 ^ (b + ((i + 1) * 31)), 0xc2b2ae35) >>> 0;
+        h4 = Math.imul((h4 ^ (b << (i & 7))) >>> 0, 0x27d4eb2d) >>> 0;
+      }
+
+      const mix32 = (x) => {
+        x = Math.imul(x ^ (x >>> 16), 0x85ebca6b) >>> 0;
+        x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35) >>> 0;
+        return (x ^ (x >>> 16)) >>> 0;
+      };
+
+      let s0 = mix32(h1 ^ h2);
+      let s1 = mix32(h2 ^ h3);
+      let s2 = mix32(h3 ^ h4);
+      let s3 = mix32(h4 ^ h1);
+      if ((s0 | s1 | s2 | s3) === 0) s0 = 0x6d2b79f5;
+
+      const nextU32 = () => {
+        const result = Math.imul(((s1 * 5) << 7) | ((s1 * 5) >>> 25), 9) >>> 0;
+        const t = (s1 << 9) >>> 0;
+        s2 ^= s0;
+        s3 ^= s1;
+        s1 ^= s2;
+        s0 ^= s3;
+        s2 ^= t;
+        s3 = ((s3 << 11) | (s3 >>> 21)) >>> 0;
+        return result;
+      };
+
+      const bytes = new Uint8Array(30);
+      for (let i = 0; i < 30; i += 4) {
+        const r = nextU32();
+        bytes[i] = r & 0xff;
+        if (i + 1 < 30) bytes[i + 1] = (r >>> 8) & 0xff;
+        if (i + 2 < 30) bytes[i + 2] = (r >>> 16) & 0xff;
+        if (i + 3 < 30) bytes[i + 3] = (r >>> 24) & 0xff;
+      }
+
+      let binary = '';
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+
+      const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      return `toid_v1_k01_RRi_${encoded}`;
+    }
+
+    function resolveSeedName() {
+      if (customName) return customName;
+      try {
+        if (typeof Account !== 'undefined') {
+          return String(Account.data?.nick || Account.data?.name || Account.name || '').trim();
+        }
+      } catch {}
+      return '';
+    }
+
+    const LAST_UID_KEY = 'solstice.potato.uidspoof.lastUid';
+
+    function loadSavedUid() {
+      try {
+        const saved = String(localStorage.getItem(LAST_UID_KEY) || '').trim();
+        return saved.startsWith('toid_v1_k01_RRi_') ? saved : '';
+      } catch {
+        return '';
+      }
+    }
+
+    function saveUid(value) {
+      try {
+        if (value && value.startsWith('toid_v1_k01_RRi_')) {
+          localStorage.setItem(LAST_UID_KEY, value);
+        }
+      } catch {}
+    }
+
     function freshIdentity() {
-      uid = randomUid();
+      const seedName = resolveSeedName();
+      if (seedName) {
+        uid = uidFromSeed(seedName);
+      } else {
+        uid = loadSavedUid() || randomUid();
+      }
+      saveUid(uid);
     }
 
     function getToy() {
@@ -367,10 +462,14 @@
         }
 
         used = true;
+        const identity = profileIdentity();
+        const resolvedUid = identity.nickname ? uidFromSeed(identity.nickname) : (uid || loadSavedUid() || randomUid());
+        uid = resolvedUid;
+        saveUid(resolvedUid);
         return {
-          ...profileIdentity(),
-          uid,
-          toyOpenId: uid
+          ...identity,
+          uid: resolvedUid,
+          toyOpenId: resolvedUid
         };
       };
 
@@ -441,10 +540,11 @@
       }
 
       const wasEnabled = enabled;
+      const prevName = customName;
       enabled = Boolean(data.enabled);
       customName = String(data.customName || '').trim().slice(0, 24);
 
-      if (!wasEnabled && enabled) {
+      if ((!wasEnabled && enabled) || (enabled && customName !== prevName)) {
         freshIdentity();
         clearBanState();
         installHook();
