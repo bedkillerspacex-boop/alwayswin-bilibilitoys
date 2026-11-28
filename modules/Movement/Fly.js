@@ -160,6 +160,8 @@
     let hookedPlayer = null;
     const blinkQueue = [];
     let lastBlinkFlushAt = 0;
+    let wsBlinkHooked = false;
+    let rtcBlinkHooked = false;
 
     function isMovementPacket(data) {
       if (typeof data === 'string') {
@@ -192,7 +194,8 @@
     }
 
     function installBlinkHooks() {
-      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeFlyBlink) {
+      if (!wsBlinkHooked && typeof WebSocket === 'function') {
+        wsBlinkHooked = true;
         const origSend = WebSocket.prototype.send;
         const wrapped = function flyBlinkWsSend(data) {
           if (enabled && config.mode === 'Blink' && isMovementPacket(data)) {
@@ -206,7 +209,8 @@
         WebSocket.prototype.send = wrapped;
       }
 
-      if (typeof RTCDataChannel === 'function' && !RTCDataChannel.prototype.send.__solsticeFlyBlink) {
+      if (!rtcBlinkHooked && typeof RTCDataChannel === 'function') {
+        rtcBlinkHooked = true;
         const origRtcSend = RTCDataChannel.prototype.send;
         const wrappedRtc = function flyBlinkRtcSend(data) {
           if (enabled && config.mode === 'Blink' && isMovementPacket(data)) {

@@ -98,6 +98,8 @@
     let mode = 'Clean Reply';
     let cleanIntegrity = true;
     let blockFlags = true;
+    let wsHooked = false;
+    let fetchHooked = false;
 
     function updateGlobalFlag() {
       window.__solsticeDisablerActive = Boolean(enabled && mode === 'Clean Reply');
@@ -216,7 +218,8 @@
     }
 
     function installTransportHooks() {
-      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeDisabler) {
+      if (!wsHooked && typeof WebSocket === 'function') {
+        wsHooked = true;
         const origSend = WebSocket.prototype.send;
         const wrappedSend = function disablerWsSend(data) {
           const res = processOutgoingString(data);
@@ -227,7 +230,8 @@
         WebSocket.prototype.send = wrappedSend;
       }
 
-      if (typeof window.fetch === 'function' && !window.fetch.__solsticeDisabler) {
+      if (!fetchHooked && typeof window.fetch === 'function') {
+        fetchHooked = true;
         const origFetch = window.fetch;
         const wrappedFetch = function disablerFetch(input, init) {
           if (enabled && init && typeof init.body === 'string') {

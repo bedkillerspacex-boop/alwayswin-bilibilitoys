@@ -107,6 +107,8 @@
     const queue = [];
     let lastFlushAt = 0;
     let ghostPos = null;
+    let wsHooked = false;
+    let rtcHooked = false;
 
     let overlayCanvas = null;
     let overlayCtx = null;
@@ -157,7 +159,8 @@
     }
 
     function installNetworkHooks() {
-      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeBlink) {
+      if (!wsHooked && typeof WebSocket === 'function') {
+        wsHooked = true;
         const origWsSend = WebSocket.prototype.send;
         const wrappedWs = function blinkWsSend(data) {
           if (enabled && window.game?.state === 'play' && shouldBuffer(data)) {
@@ -172,7 +175,8 @@
         WebSocket.prototype.send = wrappedWs;
       }
 
-      if (typeof RTCDataChannel === 'function' && !RTCDataChannel.prototype.send.__solsticeBlink) {
+      if (!rtcHooked && typeof RTCDataChannel === 'function') {
+        rtcHooked = true;
         const origRtcSend = RTCDataChannel.prototype.send;
         const wrappedRtc = function blinkRtcSend(data) {
           if (enabled && window.game?.state === 'play' && shouldBuffer(data)) {

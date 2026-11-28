@@ -258,8 +258,12 @@
       return str;
     }
 
+    let wsSpoofHooked = false;
+    let fetchSpoofHooked = false;
+
     function installNetworkSpoof() {
-      if (typeof WebSocket === 'function' && !WebSocket.prototype.send.__solsticeTouchSpoof) {
+      if (!wsSpoofHooked && typeof WebSocket === 'function') {
+        wsSpoofHooked = true;
         const nativeSend = WebSocket.prototype.send;
         const wrappedSend = function send(data) {
           return nativeSend.call(this, rewriteJsonString(data));
@@ -268,7 +272,8 @@
         WebSocket.prototype.send = wrappedSend;
       }
 
-      if (typeof window.fetch === 'function' && !window.fetch.__solsticeTouchSpoof) {
+      if (!fetchSpoofHooked && typeof window.fetch === 'function') {
+        fetchSpoofHooked = true;
         const nativeFetch = window.fetch;
         const wrappedFetch = function fetch(input, init) {
           if (enabled && init && typeof init.body === 'string') {
